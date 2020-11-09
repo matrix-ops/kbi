@@ -1,5 +1,6 @@
 #!/bin/bash
-#Kubernetes Binarization Installer v0.0.1
+#Kubernetes Binarization Installer v0.0.2
+#Author Dolphin-Matrix Ops
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
@@ -7,20 +8,28 @@ echo -e "\033[32m===============================================================
 echo -e "\033[32m请在部署节点执行安装操作，部署节点可以是集群节点中的其中一个,或是任何可以连接至目标K8s集群的节点\033[0m"
 echo -e "\033[32m请提前在所有节点上关闭SELinux和Firewalld，并且做好节点之间SSH互信，免密登录\033[0m"
 read -p "输入Master节点IP,以空格分割:" -a MasterIP
-read -p "输入Node节点IP,以空格分割:" -a NodeIP
+read -p "输入Node节点IP,以空格分割,默认与Master节点相同:" -a NodeIP
 read -p "输入K8s集群VIP:" k8sVIP
 read -p "输入Pod网段,以CIDR格式表示,默认172.23.0.0/16(按回车跳过):" podNet
 read -p "输入Service网段,以CIDR格式表示,默认10.253.0.0/16(按回车跳过):" serviceNet
 read -p "输入Kubernetes版本,默认1.18.10(按回车跳过): " k8sVersion
 read -p "输入docker-ce版本,默认最新版(按回车跳过): " dockerVersion
-nodeCount=(${MasterIP[*]} ${NodeIP[*]})
+#Master节点数量
+mCount=${#MasterIP[@]}
+#Node节点数量
+nCount=${#NodeIP[@]}
+if [ $nCount -eq 0 ];then
+    nodeCount=(${MasterIP[*]})
+    NodeIP=(${MasterIP[*]})
+else
+    nodeCount=(${MasterIP[*]} ${NodeIP[*]})
+fi
 echo "节点总数:${#nodeCount[@]},Master数量:${#MasterIP[@]},Node数量:${#NodeIP[@]}"
 echo "Master节点："
 for i in ${MasterIP[*]};do echo $i;done
 echo "Node节点:"
 for i in ${NodeIP[*]};do echo $i;done
 echo
-
 if [ -z "$k8sVersion" ];then
     k8sVersion=1.18.10
 fi
@@ -40,7 +49,10 @@ fi
 
 
 autoSSHCopy(){
-    ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
+    if [ ! -e /root/.ssh/id_rsa ];then
+        echo "公钥文件不存在"
+        ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
+    fi
     for i in ${nodeCount[*]};do ssh-copy-id $i;done
 }
 #Preparation
@@ -961,13 +973,16 @@ EOF
 	    echo -e "\033[31m $i kubelet 启动失败，请检查日志文件\033[0m"
 	fi
 done
+
+#确保在所有节点都发出了CSR之后再进行approve操作
+sleep 10
 for i in $(kubectl get csr | awk 'NR>1{print $1}' );do kubectl certificate approve $i ;done
 }
 
 deployKubeProxy(){
 	mkdir -p /etc/kubernetes/pki/proxy		
 	cd /etc/kubernetes/pki/proxy
-cat << EOF > proxy-csr.json
+    cat << EOF > proxy-csr.json
 {
     "CN": "system:kube-proxy",
     "hosts": [],
