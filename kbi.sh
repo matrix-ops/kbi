@@ -1090,16 +1090,16 @@ deployCoreDNS(){
    sleep 5
    kubectl scale deploy -n kube-system coredns --replicas=${#NodeIP[@]}
 }
-#autoSSHCopy
-#preparation
-#deployHaproxyKeepalived
-#deployETCD
-#setKubectl
-#deployFlannel
-#deployApiserver
-#deployControllerManager
-#deployScheduler
-#deployKubelet
-#deployKubeProxy
-#deployIngressController
-#deployCoreDNS
+autoSSHCopy
+preparation
+deployHaproxyKeepalived
+deployETCD
+setKubectl
+deployFlannel
+deployApiserver
+deployControllerManager
+deployScheduler
+deployKubelet
+deployKubeProxy
+deployIngressController
+deployCoreDNS
