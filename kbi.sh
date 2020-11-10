@@ -1,6 +1,6 @@
 #!/bin/bash
-#Kubernetes Binarization Installer v0.0.2
-#Author Dolphin-Matrix Ops
+# Kubernetes Binarization Installer v0.0.3
+# Author Dolphin-Matrix Ops
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
@@ -49,6 +49,7 @@ fi
 
 
 autoSSHCopy(){
+    echo -e "\033[32m正在配置各节点SSH互信免密登录..........\033[0m"
     if [ ! -e /root/.ssh/id_rsa ];then
         echo "公钥文件不存在"
         ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
@@ -58,22 +59,6 @@ autoSSHCopy(){
 #Preparation
 preparation(){
 echo -e "\033[32m开始执行部署流程..........\033[0m"
-echo -e "\033[32mInitializing..........\033[0m"
-#关闭SELinux和Firewalld
-#setenforce 0
-#sed -i  's/SELINUX=enforcing/SELINUX=disabled/' /etc/sysconfig/selinux
-#systemctl mask firewalld && systemctl stop firewalld
-#read -p "部署节点是否需要免密登录至K8s集群,请输入yes或者no:" passwordLessLogin
-#passwordLessLogin="yes"
-#if [ "${passwordLessLogin}" == "yes" ];then
-#    if [ ! -e /root/.ssh/id_rsa ];then
-#        ssh-keygen -t rsa -P '' 
-#        for i in ${nodeCount[*]};do 
-#             ssh-copy-id root@$i
-#    done
-#    fi
-#fi
-#配置docker-ce 阿里云源
 cat << EOF > /etc/yum.repos.d/docker-ce.repo
 #/etc/yum.repos.d/docker-ce.repo
 [docker-ce-stable]
@@ -135,11 +120,11 @@ cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
 {
     "signing": {
         "default": {
-            "expiry": "8760h"
+            "expiry": "87600h"
         },
         "profiles": {
             "kubernetes": {
-                "expiry": "8760h",
+                "expiry": "87600h",
                 "usages": [
                     "signing",
                     "key encipherment",
@@ -178,7 +163,7 @@ for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
     ssh $i "yum install -y curl sysstat conntrack br_netfilter ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/ &> /dev/null"
-    ssh $i "systemctl mask firewalld && setenforce 0"
+    ssh $i "systemctl mask firewalld && setenforce 0 && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
     if [ -z "$dockerVersion" ];then
         ssh $i yum install docker-ce -y
     else
@@ -186,7 +171,7 @@ for i in ${nodeCount[*]};do
     fi
     ssh $i mkdir /etc/kubernetes/pki/CA &> /dev/null
     scp /etc/kubernetes/pki/CA/* $i:/etc/kubernetes/pki/CA
-    echo -e "\033[32m节点$i 依赖包安装完成\033[0m" 
+    echo -e "\033[32m节点$i 初始化安装完成\033[0m" 
     echo -e "\033[32m====================\033[0m"
     echo 
 done
@@ -949,7 +934,7 @@ EOF
 for i in ${NodeIP[*]};do
 cat << EOF > /tmp/kubelet.conf
 KUBELET_ARGS="--address=$i \\
-  --hostname-override=k8s-node-$i \\
+  --hostname-override=$i \\
   --pod-infra-container-image=gcr.io/google_containers/pause-amd64:3.0 \\
   --bootstrap-kubeconfig=/etc/kubernetes/pki/bootstrap/bootstrap.kubeconfig \\
   --kubeconfig=/etc/kubernetes/pki/bootstrap/kubelet.kubeconfig \\
@@ -977,6 +962,11 @@ done
 #确保在所有节点都发出了CSR之后再进行approve操作
 sleep 10
 for i in $(kubectl get csr | awk 'NR>1{print $1}' );do kubectl certificate approve $i ;done
+wget http://120.79.32.103:808/pause-amd64-3.0.tar.gz -O /tmp/pause-amd64-3.0.tar.gz
+for i in ${NodeIP[*]};do
+    scp /tmp/pause-amd64-3.0.tar.gz $i:/tmp
+    ssh $i "docker image load -i /tmp/pause-amd64-3.0.tar.gz"
+done
 }
 
 deployKubeProxy(){
@@ -1042,17 +1032,17 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
+
+for i in ${NodeIP[*]};do
 cat << EOF > /tmp/kube-proxy.conf
 KUBE_PROXY_ARGS="--bind-address=$i \\
-  --hostname-override=kube-node-$i \\
+  --hostname-override=$i \\
   --cluster-cidr=${serviceNet} \\
   --kubeconfig=/etc/kubernetes/pki/proxy/proxy.kubeconfig \\
   --logtostderr=false \\
   --log-dir=/var/log/kubernetes/proxy \\
   --v=2"
 EOF
-
-for i in ${NodeIP[*]};do
 	ssh $i mkdir -p /etc/kubernetes/pki/proxy/  /var/log/kubernetes/proxy  /var/lib/kube-proxy  &> /dev/null
 	scp /etc/systemd/system/kube-proxy.service $i:/etc/systemd/system/
 	scp /etc/kubernetes/pki/proxy/* $i:/etc/kubernetes/pki/proxy/
@@ -1066,14 +1056,50 @@ for i in ${NodeIP[*]};do
 done
 }
 
-autoSSHCopy
-preparation
-deployHaproxyKeepalived
-deployETCD
-setKubectl
-deployFlannel
-deployApiserver
-deployControllerManager
-deployScheduler
-deployKubelet
-deployKubeProxy
+deployIngressController(){
+	echo -e "\033[32m 正在部署nginx-ingress-controller.. \033[0m"
+    if [ ! -e /tmp/nginx-ingress-controller-0.27.1.tar.gz ];then
+        wget http://120.79.32.103:808/nginx-ingress-controller-0.27.1.tar.gz -O /tmp/nginx-ingress-controller-0.27.1.tar.gz
+    fi
+    wget http://120.79.32.103:808/nginx-ingress-controller-mandatory.yaml -O /tmp/nginx-ingress-controller-mandatory.yaml
+    wget http://120.79.32.103:808/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
+    for i in ${NodeIP[*]};do
+        scp /tmp/nginx-ingress-controller-0.27.1.tar.gz /tmp/nginx-ingress-controller-mandatory.yaml $i:/tmp/
+        ssh $i exec  "docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz"
+    done
+    kubectl apply -f /tmp/nginx-ingress-controller-mandatory.yaml
+    kubectl apply -f /tmp/nginx-ingress-controller-service.yaml
+    sleep 5
+    kubectl scale deploy -n ingress-nginx nginx-ingress-controller --replicas=${#NodeIP[@]}
+}
+
+deployCoreDNS(){
+   if [ ! -e /tmp/coredns-deployment-1.8.0.tar.gz ];then
+        wget http://120.79.32.103:808/coredns-deployment-1.8.0.tar.gz -O /tmp/coredns-deployment-1.8.0.tar.gz
+        tar xvf /tmp/coredns-deployment-1.8.0.tar.gz -C /tmp
+   fi
+   if [ ! -e /tmp/coredns-image-1.8.0.tar.gz ];then
+        wget http://120.79.32.103:808/coredns-image-1.8.0.tar.gz -O /tmp/coredns-image-1.8.0.tar.gz
+   fi
+
+   for i in ${NodeIP[*]};do
+        scp /tmp/coredns-image-1.8.0.tar.gz $i:/tmp/ 
+        ssh $i exec "docker image load -i /tmp/coredns-image-1.8.0.tar.gz"
+   done
+   bash /tmp/deployment-master/kubernetes/deploy.sh -i ${clusterDnsIP} -s | kubectl apply -f -
+   sleep 5
+   kubectl scale deploy -n kube-system coredns --replicas=${#NodeIP[@]}
+}
+#autoSSHCopy
+#preparation
+#deployHaproxyKeepalived
+#deployETCD
+#setKubectl
+#deployFlannel
+#deployApiserver
+#deployControllerManager
+#deployScheduler
+#deployKubelet
+#deployKubeProxy
+#deployIngressController
+#deployCoreDNS
