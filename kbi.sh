@@ -1,4 +1,4 @@
-120.79.32.103:808#!/bin/bash
+#!/bin/bash
 # Kubernetes Binarization Installer v0.0.3
 # Author Dolphin-Matrix Ops
 echo -e "\033[32m========================================================================\033[0m"
