@@ -14,16 +14,16 @@ read -p "输入Pod网段,以CIDR格式表示,默认172.23.0.0/16(按回车跳过
 read -p "输入Service网段,以CIDR格式表示,默认10.253.0.0/16(按回车跳过):" serviceNet
 read -p "输入Kubernetes版本,默认1.18.10(按回车跳过): " k8sVersion
 read -p "输入docker-ce版本,默认最新版(按回车跳过): " dockerVersion
+#Master节点数量
+mCount=${#MasterIP[@]}
+#Node节点数量
+nCount=${#NodeIP[@]}
 if [ $nCount -eq 0 ];then
     nodeCount=(${MasterIP[*]})
     NodeIP=(${MasterIP[*]})
 else
     nodeCount=(${MasterIP[*]} ${NodeIP[*]})
 fi
-#Master节点数量
-mCount=${#MasterIP[@]}
-#Node节点数量
-nCount=${#NodeIP[@]}
 echo "节点总数:${#nodeCount[@]},Master数量:${#MasterIP[@]},Node数量:${#NodeIP[@]}"
 echo "Master节点："
 for i in ${MasterIP[*]};do echo $i;done
