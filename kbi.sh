@@ -1,4 +1,4 @@
-#!/bin/bash
+120.79.32.103:808#!/bin/bash
 # Kubernetes Binarization Installer v0.0.3
 # Author Dolphin-Matrix Ops
 echo -e "\033[32m========================================================================\033[0m"
@@ -41,12 +41,12 @@ if [ -z "$serviceNet" ];then
 fi
 firstServiceIP=$(echo $serviceNet | awk -F'/' '{print $1}' | sed 's/0$/1/')
 clusterDnsIP=$(echo $serviceNet | awk -F'/' '{print $1}' | sed 's/0$/2/')
+
 if [[ -e /etc/kubernetes/pki/bootstrap/token.csv ]];then
 	bootstrapToken=$(awk -F',' '{print $1}' /etc/kubernetes/pki/bootstrap/token.csv)
 else
 	bootstrapToken=$(head -c 16 /dev/urandom | od -An -t x | tr -d ' ')
 fi
-
 
 autoSSHCopy(){
     echo -e "\033[32m正在配置各节点SSH互信免密登录..........\033[0m"
@@ -154,6 +154,7 @@ cat << EOF > /etc/kubernetes/pki/CA/ca-csr.json
     ]
 } 
 EOF
+
 cd /etc/kubernetes/pki/CA
 if [[ ! -e /etc/kubernetes/pki/CA/ca.pem && ! -e /etc/kubernetes/pki/CA/ca-key.pem ]];then
     cfssl gencert -initca /etc/kubernetes/pki/CA/ca-csr.json | cfssljson -bare ca
@@ -400,8 +401,10 @@ ssh $i mkdir /etc/kubernetes/pki/etcd/ /var/lib/etcd/  &>/dev/null
 scp /etc/kubernetes/pki/etcd/* $i:/etc/kubernetes/pki/etcd/
 ((index++))
 done
+
 echo -e "\033[32m正在启动etcd.....\033[0m"
 ssh ${MasterIP[0]} exec "systemctl enable etcd && systemctl start etcd" &> /dev/null &
+
 for i in ${MasterIP[*]};do
     ssh $i "systemctl start etcd && systemctl enable etcd &"
     echo -e "\033[32m${i} etcd启动成功\033[0m"
@@ -442,6 +445,7 @@ setKubectl(){
         ]
     }
 EOF
+
 cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem \
 -ca-key=/etc/kubernetes/pki/CA/ca-key.pem \
 -config=/etc/kubernetes/pki/CA/ca-config.json \
@@ -452,18 +456,15 @@ kubectl config set-cluster kubernetes \
 --embed-certs=true \
 --server=https://${k8sVIP}:8443 \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
-
 kubectl config set-credentials admin \
 --client-certificate=/etc/kubernetes/pki/admin/admin.pem \
 --embed-certs=true \
 --client-key=/etc/kubernetes/pki/admin/admin-key.pem \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
-
 kubectl config set-context admin@kubernetes \
 --cluster=kubernetes \
 --user=admin \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
-
 kubectl config use-context admin@kubernetes --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
 
 for i in ${MasterIP[*]};do
@@ -515,8 +516,6 @@ if [[ ! $(which flanneld) ]];then
    tar xvf /opt/flannel-v0.10.0-linux-amd64.tar.gz -C /opt/
    cp /opt/{flanneld,mk-docker-opts.sh} /usr/local/bin/
 fi
-
-
 
 cat << EOF > /etc/systemd/system/flanneld.service
 [Unit]
@@ -710,7 +709,6 @@ EOF
         echo -e "\033[31m $i kube-apiserver 启动失败，请检查日志文件\033[0m"
     fi
 done
-
 }
 
 deployControllerManager(){
@@ -779,24 +777,20 @@ KUBE_CONTROLLER_MANAGER_ARGS="--master=https://${k8sVIP}:8443 \\
   --v=2  1>>/var/log/kubernetes/kube-controller-manager.log 2>&1"
 EOF
 
-
 kubectl config set-cluster kubernetes \
 --certificate-authority=/etc/kubernetes/pki/CA/ca.pem \
 --embed-certs=true \
 --server=https://${k8sVIP}:8443 \
 --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
-
 kubectl config set-credentials system:kube-controller-manager \
 --client-certificate=/etc/kubernetes/pki/controller-manager/controller-manager.pem \
 --embed-certs=true \
 --client-key=/etc/kubernetes/pki/controller-manager/controller-manager-key.pem \
 --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
-
 kubectl config set-context system:kube-controller-manager@kubernetes \
 --cluster=kubernetes \
 --user=system:kube-controller-manager \
 --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
-
 kubectl config use-context system:kube-controller-manager@kubernetes --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
 
 for i in ${MasterIP[*]};do
@@ -839,6 +833,7 @@ deployScheduler(){
     ]
 }
 EOF
+
 if [[ ! -e /etc/kubernetes/pki/scheduler/scheduler-key.pem && ! -e /etc/kubernetes/pki/scheduler/scheduler.pem ]];then
     cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem \
     -ca-key=/etc/kubernetes/pki/CA/ca-key.pem \
@@ -851,18 +846,15 @@ fi
     --embed-certs=true \
     --server=https://${k8sVIP}:8443 \
     --kubeconfig=/etc/kubernetes/pki/scheduler/scheduler.conf
-
     kubectl config set-credentials system:kube-scheduler \
     --client-certificate=/etc/kubernetes/pki/scheduler/scheduler.pem \
     --embed-certs=true \
     --client-key=/etc/kubernetes/pki/scheduler/scheduler-key.pem \
     --kubeconfig=/etc/kubernetes/pki/scheduler/scheduler.conf
-
     kubectl config set-context system:kube-scheduler@kubernetes \
     --cluster=kubernetes \
     --user=system:kube-scheduler \
     --kubeconfig=scheduler.conf
-
     kubectl config use-context system:kube-scheduler@kubernetes --kubeconfig=scheduler.conf 
 
     cat << EOF > /etc/systemd/system/kube-scheduler.service
@@ -903,8 +895,8 @@ for i in ${MasterIP[*]};do
         echo -e "\033[31m $i kube-scheduler 启动失败，请检查日志文件\033[0m"
     fi
 done
-
 }
+
 deployKubelet(){
 	kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap &> /dev/null
 	cd /etc/kubernetes/pki/bootstrap/
@@ -948,6 +940,7 @@ KUBELET_ARGS="--address=$i \\
   --log-dir=/var/log/kubernetes/kubelet \\
   --v=2"
 EOF
+
 	ssh $i mkdir -p /etc/kubernetes/pki/bootstrap/ /var/lib/kubelet /var/log/kubernetes/kubelet &>/dev/null
 	scp /etc/systemd/system/kubelet.service $i:/etc/systemd/system/
 	scp /tmp/kubelet.conf $i:/usr/local/etc/
@@ -971,8 +964,8 @@ done
 }
 
 deployKubeProxy(){
-	mkdir -p /etc/kubernetes/pki/proxy		
-	cd /etc/kubernetes/pki/proxy
+    mkdir -p /etc/kubernetes/pki/proxy		
+    cd /etc/kubernetes/pki/proxy
     cat << EOF > proxy-csr.json
 {
     "CN": "system:kube-proxy",
@@ -992,6 +985,7 @@ deployKubeProxy(){
     ]
 }
 EOF
+
 	if [[ ! -e /etc/kubernetes/pki/proxy/proxy.pem && ! -e /etc/kubernetes/pki/proxy/proxy-key.pem ]];then
 		cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem -ca-key=/etc/kubernetes/pki/CA/ca-key.pem -config=/etc/kubernetes/pki/CA/ca-config.json -profile=kubernetes proxy-csr.json | cfssljson -bare proxy	
 	fi
@@ -1001,18 +995,15 @@ EOF
 	--embed-certs=true \
 	--server=https://${k8sVIP}:8443 \
 	--kubeconfig=proxy.kubeconfig
-	
 	kubectl config set-credentials system:kube-proxy \
 	--client-certificate=/etc/kubernetes/pki/proxy/proxy.pem \
 	--embed-certs=true \
 	--client-key=/etc/kubernetes/pki/proxy/proxy-key.pem \
 	--kubeconfig=proxy.kubeconfig
-	
 	 kubectl config set-context system:kube-proxy@kubernetes \
 	--cluster=kubernetes \
 	--user=system:kube-proxy \
 	--kubeconfig=proxy.kubeconfig
-	
 	kubectl config use-context system:kube-proxy@kubernetes --kubeconfig=proxy.kubeconfig
 
 cat << EOF > /etc/systemd/system/kube-proxy.service
@@ -1092,6 +1083,7 @@ deployCoreDNS(){
    sleep 5
    kubectl scale deploy -n kube-system coredns --replicas=${#NodeIP[@]}
 }
+
 autoSSHCopy
 preparation
 deployHaproxyKeepalived
