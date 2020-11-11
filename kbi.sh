@@ -56,6 +56,7 @@ autoSSHCopy(){
     fi
     for i in ${nodeCount[*]};do ssh-copy-id $i;done
 }
+
 #Preparation
 preparation(){
 echo -e "\033[32m开始执行部署流程..........\033[0m"
