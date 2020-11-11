@@ -400,6 +400,7 @@ ssh $i mkdir /etc/kubernetes/pki/etcd/ /var/lib/etcd/  &>/dev/null
 scp /etc/kubernetes/pki/etcd/* $i:/etc/kubernetes/pki/etcd/
 ((index++))
 done
+echo -e "\033[32m正在启动etcd.....\033[0m"
 ssh ${MasterIP[0]} exec "systemctl enable etcd && systemctl start etcd" &> /dev/null &
 for i in ${MasterIP[*]};do
     ssh $i "systemctl start etcd && systemctl enable etcd &"
