@@ -164,7 +164,7 @@ fi
 for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
-    ssh $i "yum install -y curl sysstat conntrack br_netfilter ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/ &> /dev/null"
+    ssh $i "yum install -y curl unzip sysstat conntrack br_netfilter ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/ &> /dev/null"
     ssh $i "systemctl mask firewalld && setenforce 0 && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
     if [ -z "$dockerVersion" ];then
         ssh $i yum install docker-ce -y
