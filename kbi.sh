@@ -108,6 +108,7 @@ EOF
 
 #复制阿里云yum源配置文件和kubernetes.conf内核参数文件并安装依赖包
 if [[ ! -e /usr/local/bin/cfssl || ! -e /usr/local/bin/cfssljson ]];then
+    yum install wget -y &> /dev/null
     wget http://120.79.32.103:808/cfssl -O /usr/local/bin/cfssl 
     #
     wget http://120.79.32.103:808/cfssljson -O /usr/local/bin/cfssljson
