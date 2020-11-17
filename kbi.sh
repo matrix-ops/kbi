@@ -165,14 +165,13 @@ fi
 for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
-    ssh $i "yum install -y curl unzip sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/ &> /dev/null"
+    ssh $i "yum install -y curl unzip sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
     ssh $i "systemctl mask firewalld && setenforce 0 && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
     if [ -z "$dockerVersion" ];then
         ssh $i yum install docker-ce -y
     else
         ssh $i yum install docker-ce-$dockerVersion -y
     fi
-    ssh $i mkdir /etc/kubernetes/pki/CA &> /dev/null
     scp /etc/kubernetes/pki/CA/* $i:/etc/kubernetes/pki/CA
     echo -e "\033[32m节点$i 初始化安装完成\033[0m" 
     echo -e "\033[32m====================\033[0m"
