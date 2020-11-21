@@ -1051,10 +1051,10 @@ done
 deployIngressController(){
     echo -e "\033[32m 正在部署nginx-ingress-controller.. \033[0m"
     if [ ! -e /tmp/nginx-ingress-controller-0.27.1.tar.gz ];then
-        wget http://120.79.32.103:808/nginx-ingress-controller-0.27.1.tar.gz -O /tmp/nginx-ingress-controller-0.27.1.tar.gz
+        wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-0.27.1.tar.gz -O /tmp/nginx-ingress-controller-0.27.1.tar.gz
     fi
-    wget http://120.79.32.103:808/nginx-ingress-controller-mandatory.yaml -O /tmp/nginx-ingress-controller-mandatory.yaml
-    wget http://120.79.32.103:808/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
+    wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-mandatory.yaml -O /tmp/nginx-ingress-controller-mandatory.yaml
+    wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
     for i in ${NodeIP[*]};do
         scp /tmp/nginx-ingress-controller-0.27.1.tar.gz /tmp/nginx-ingress-controller-mandatory.yaml $i:/tmp/
         ssh $i exec  "docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz"
