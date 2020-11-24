@@ -1,6 +1,7 @@
 #!/bin/bash
 # Kubernetes Binarization Installer v0.0.3
 # Author Dolphin-Matrix Ops
+set -e
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
@@ -109,13 +110,14 @@ EOF
 #复制阿里云yum源配置文件和kubernetes.conf内核参数文件并安装依赖包
 if [[ ! -e /usr/local/bin/cfssl || ! -e /usr/local/bin/cfssljson ]];then
     yum install wget -y &> /dev/null
-    wget http://120.79.32.103:808/cfssl -O /usr/local/bin/cfssl 
+    wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/cfssl/cfssl -O /usr/local/bin/cfssl 
     #
-    wget http://120.79.32.103:808/cfssljson -O /usr/local/bin/cfssljson
+    wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/cfssl/cfssljson -O /usr/local/bin/cfssljson
     #
 fi
 chmod a+x /usr/local/bin/*
-mkdir -p /etc/kubernetes/pki/CA &> /dev/null
+
+if [ ! -d /etc/kubernetes/pki/CA ];then mkdir -p /etc/kubernetes/pki/CA ;fi
 #生成CA证书和私钥
 echo -e "\033[32m生成CA自签证书和私钥..........\033[0m"
 cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
@@ -165,8 +167,8 @@ fi
 for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
-    ssh $i "yum install -y curl unzip sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
-    ssh $i "systemctl mask firewalld && setenforce 0 && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
+    ssh $i "yum install -y curl sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
+    ssh $i systemctl mask firewalld && setenforce 0  &> /dev/null && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config &> /dev/null
     if [ -z "$dockerVersion" ];then
         ssh $i yum install docker-ce -y
     else
@@ -212,7 +214,7 @@ echo -e "\033[32m正在配置NTP服务器，服务器地址为${MasterIP[0]}....
 allowNTP=${MasterIP[0]}
 netNTP=$(echo $allowNTP | awk -F'.' '{print $1,$2 }' | sed  's/ /./')
 cat << EOF > /tmp/chrony.conf
-server ntp.aliyun.com iburst
+server ntp1.aliyun.com iburst
 driftfile /var/lib/chrony/drift
 makestep 1.0 3
 rtcsync
@@ -316,7 +318,7 @@ done
 
 deployETCD(){
     echo -e "\033[32m正在部署etcd..........\033[0m"
-    mkdir -p /etc/kubernetes/pki/etcd/ &> /dev/null
+    if [ ! -d /etc/kubernetes/pki/etcd ];then mkdir -p /etc/kubernetes/pki/etcd/;fi
     cat << EOF > /etc/kubernetes/pki/etcd/etcd-csr.json
     {
         "CN": "etcd",
@@ -351,13 +353,13 @@ cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem \
 fi
 
 if [[ ! -e /tmp/etcd-v3.3.10-linux-amd64.tar.gz ]];then
-    wget http://120.79.32.103:808/etcd-v3.3.10-linux-amd64.tar.gz -O /tmp/etcd-v3.3.10-linux-amd64.tar.gz
+    wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/etcd/3.3.10/etcd-v3.3.10-linux-amd64.tar.gz -O /tmp/etcd-v3.3.10-linux-amd64.tar.gz
     tar xvf /tmp/etcd-v3.3.10-linux-amd64.tar.gz -C /tmp
 fi
 
 index=0
 for i in ${MasterIP[*]};do
-ssh $i "mkdir /tmp/etcd/ &> /dev/null"
+if [ ! -d /tmp/etcd/ ];then ssh $i mkdir /tmp/etcd/ ;fi
 cat << EOF > /tmp/etcd/etcd.conf
 ETCD_ARGS="--name=etcd-$index \\
   --cert-file=/etc/kubernetes/pki/etcd/etcd.pem \\
@@ -375,7 +377,6 @@ ETCD_ARGS="--name=etcd-$index \\
   --initial-cluster-state=new \\
   --data-dir=/var/lib/etcd"
 EOF
-scp /tmp/etcd/etcd.conf $i:/usr/local/etc/
 cat << EOF > /tmp/etcd/etcd.service
 [Unit]
 Description=Etcd Server
@@ -396,36 +397,71 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 EOF
-scp /tmp/etcd/etcd.service $i:/etc/systemd/system/
-scp /tmp/etcd-v3.3.10-linux-amd64/etcd* $i:/usr/local/bin
-ssh $i mkdir /etc/kubernetes/pki/etcd/ /var/lib/etcd/  &>/dev/null
-scp /etc/kubernetes/pki/etcd/* $i:/etc/kubernetes/pki/etcd/
-((index++))
+
+    if $(ssh $i "[[ -f /etc/systemd/system/etcd.service ]]");then
+        echo -e "\033[32m节点$i 已存在ETCD systemd service文件，跳过此步骤..........\033[0m"
+    else
+        scp /tmp/etcd/etcd.service $i:/etc/systemd/system/ &> /dev/null &
+    fi
+
+    if $(ssh $i "systemctl status etcd &> /dev/null");then
+        echo -e "\033[32m节点$i ETCD正在运行中，跳过此步骤..........\033[0m"
+    else
+        scp /tmp/etcd-v3.3.10-linux-amd64/etcd* $i:/usr/local/bin
+    fi
+
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/etcd/ ]]");then
+        echo -e "\033[32m节点$i 已存在/etc/kubernetes/pki/etcd/目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i  mkdir -p /etc/kubernetes/pki/etcd/ /var/lib/etcd/
+    fi
+
+    if $(ssh $i "[[ -d /var/lib/etcd/ ]]");then
+        echo -e "\033[32m节点$i 已存在/var/lib/etcd/目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i  mkdir -p  /var/lib/etcd/
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/etcd/etcd-key.pem ]]");then
+        echo -e "\033[32m节点$i 已存在ETCD证书私钥文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/etcd/* $i:/etc/kubernetes/pki/etcd/ 
+    fi
+
+    scp /tmp/etcd/etcd.conf $i:/usr/local/etc/
+    let index+=1
+    echo 
 done
 
 echo -e "\033[32m正在启动etcd.....\033[0m"
-ssh ${MasterIP[0]} exec "systemctl enable etcd && systemctl start etcd" &> /dev/null &
+ssh ${MasterIP[0]}  "systemctl enable etcd && systemctl start etcd " &
 
 for i in ${MasterIP[*]};do
-    ssh $i "systemctl start etcd && systemctl enable etcd &"
-    echo -e "\033[32m${i} etcd启动成功\033[0m"
+    if [ ! $i = ${MasterIP[0]} ];then
+        ssh $i "systemctl enable etcd && systemctl start etcd "
+        if [ $? ];then
+            echo -e "\033[32m${i} etcd启动成功\033[0m"
+        else
+            echo -e "\033[31m${i} etcd启动失败，请检查日志\033[0m"
+        fi
+    fi
 done
 }
 
 setKubectl(){
     if [[ ! $(which kube-apiserver) ]];then
-        wget http://120.79.32.103:808/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  -C /opt/&& cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag 
+        wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  -C /opt/&& cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag 
         #如果上述链接失效，请使用如下链接
         #wget http://dl.k8s.io/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  && cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag && mv * /usr/local/bin/
         for i in ${nodeCount[*]};do
-            scp /opt/kubernetes/server/bin/* $i:/usr/local/bin/
+            scp /opt/kubernetes/server/bin/* $i:/usr/local/bin/ 
             ssh $i "chmod a+x /usr/local/bin/*"
         done
     else
         echo -e "\033[31m二进制文件已存在，跳过下载和复制Kubernetes v${k8sVersion}二进制文件的步骤\033[0m"
     fi
 
-    mkdir -p /etc/kubernetes/pki/admin
+    if [ ! -d /etc/kubernetes/pki/admin ];then mkdir -p /etc/kubernetes/pki/admin  ;fi
     cd /etc/kubernetes/pki/admin
     cat <<EOF > /etc/kubernetes/pki/admin/admin-csr.json
     {
@@ -469,15 +505,15 @@ kubectl config set-context admin@kubernetes \
 kubectl config use-context admin@kubernetes --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
 
 for i in ${MasterIP[*]};do
-    ssh $i mkdir -p /etc/kubernetes/pki/admin /root/.kube/ &>/dev/null
-    scp /etc/kubernetes/pki/admin/admin* $i:/etc/kubernetes/pki/admin/
-    scp /etc/kubernetes/pki/admin/admin.conf $i:/root/.kube/config
-    echo -e "\033[32m${i} kubectl配置完成\033[0m"
-done
+     ssh $i mkdir -p /etc/kubernetes/pki/admin /root/.kube/ &>/dev/null &
+     scp /etc/kubernetes/pki/admin/admin* $i:/etc/kubernetes/pki/admin/ 2> /dev/null
+     scp /etc/kubernetes/pki/admin/admin.conf $i:/root/.kube/config 2> /dev/null
+     echo -e "\033[32m${i} kubectl配置完成\033[0m"
+    done
 }
 
 deployFlannel(){
-    mkdir -p /etc/kubernetes/pki/flannel/
+    mkdir -p /etc/kubernetes/pki/flannel/ 2> /dev/null
     cd /etc/kubernetes/pki/flannel/
     cat << EOF > /etc/kubernetes/pki/flannel/flannel-csr.json
     {
@@ -513,7 +549,7 @@ etcdctl --endpoints=https://${MasterIP[0]}:2379 \
 set /kubernetes/network/config  '{"Network":"'${podNet}'", "SubnetLen": 24, "Backend": {"Type": "vxlan"}}'
 
 if [[ ! $(which flanneld) ]];then
-   wget http://120.79.32.103:808/flannel-v0.10.0-linux-amd64.tar.gz -O /opt/flannel-v0.10.0-linux-amd64.tar.gz 
+   wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/flannel/0.10.0/flannel-v0.10.0-linux-amd64.tar.gz -O /opt/flannel-v0.10.0-linux-amd64.tar.gz 
    tar xvf /opt/flannel-v0.10.0-linux-amd64.tar.gz -C /opt/
    cp /opt/{flanneld,mk-docker-opts.sh} /usr/local/bin/
 fi
@@ -576,13 +612,39 @@ KillMode=process
 WantedBy=multi-user.target
 EOF
 for i in ${nodeCount[*]};do
-    ssh $i "mkdir -p /etc/kubernetes/pki/flannel/ /run/flannel && touch /run/flannel/docker"
-    scp /opt/{flanneld,mk-docker-opts.sh} $i:/usr/local/bin/
-    scp /etc/kubernetes/pki/flannel/flannel* $i:/etc/kubernetes/pki/flannel/
-    scp /etc/systemd/system/flanneld.service $i:/etc/systemd/system/flanneld.service
-    scp /usr/local/etc/flanneld.conf $i:/usr/local/etc/flanneld.conf
-    scp /tmp/docker.service $i:/usr/lib/systemd/system/docker.service
-    ssh $i "systemctl daemon-reload && systemctl enable docker flanneld && systemctl restart flanneld && systemctl restart docker"
+
+    ssh $i "if [ ! -d /etc/kubernetes/pki/flannel/ ];then mkdir -p /etc/kubernetes/pki/flannel/ /run/flannel ; touch /run/flannel/docker;fi" 
+
+    if $(ssh $i systemctl status flanneld &> /dev/null);then
+        echo -e "\033[32m$i Flanneld正在运行中，跳过复制可执行文件步骤..........\033[0m"
+    else
+        scp /opt/{flanneld,mk-docker-opts.sh} $i:/usr/local/bin/ 
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/flannel/flannel.pem && -f /etc/kubernetes/pki/flannel/flannel-key.pem ]]");then
+        echo -e "\033[32m$i 已存在Flanneld证书文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/flannel/flannel* $i:/etc/kubernetes/pki/flannel/ 
+    fi
+
+    if $(ssh $i "[[ -f /etc/systemd/system/flanneld.service ]]");then
+        echo -e "\033[32m$i 已存在Flanneld Systemd Service文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/systemd/system/flanneld.service $i:/etc/systemd/system/flanneld.service 
+    fi
+
+    # if $(ssh $i "[[ -f /usr/local/etc/flanneld.conf ]]");then
+    #     echo -e "\033[32m$i 已存在Flanneld配置文件，跳过此步骤..........\033[0m"
+    # else
+    #     scp /usr/local/etc/flanneld.conf $i:/usr/local/etc/flanneld.conf 
+    # fi
+
+    scp /usr/local/etc/flanneld.conf $i:/usr/local/etc/flanneld.conf 
+    scp /tmp/docker.service $i:/usr/lib/systemd/system/docker.service 
+    ssh $i "systemctl daemon-reload ; systemctl enable docker flanneld"
+    ssh $i "systemctl daemon-reload && systemctl start flanneld &> /dev/null" 
+    ssh $i "systemctl daemon-reload && systemctl start docker &> /dev/null" 
+    # ssh $i "systemctl daemon-reload;systemctl enable docker flanneld && systemctl start flanneld ; systemctl restart flanneld && systemctl start docker ;systemctl restart docker"
     if [ $? ];then
         echo -e "\033[32m $i Flanneld 启动成功\033[0m"
     else
@@ -592,7 +654,18 @@ done
 }
 
 deployApiserver(){
-    mkdir -p /etc/kubernetes/pki/apiserver/ /etc/kubernetes/pki/bootstrap &> /dev/null
+    if [ -d /etc/kubernetes/pki/apiserver/ ];then 
+        echo -e "\033[32m本地已存在/etc/kubernetes/pki/apiserver目录，跳过此步骤..........\033[0m"
+    else
+        mkdir -p /etc/kubernetes/pki/apiserver/ /etc/kubernetes/pki/bootstrap 
+    fi
+
+    if [ -d /etc/kubernetes/pki/bootstrap/ ];then 
+        echo -e "\033[32m本地已存在/etc/kubernetes/pki/bootstrap目录，跳过此步骤..........\033[0m"
+    else
+        mkdir -p /etc/kubernetes/pki/bootstrap 
+    fi
+
 if [[ ! -e /etc/kubernetes/pki/bootstrap/token.csv ]];then
     cat << EOF > /etc/kubernetes/pki/bootstrap/token.csv
 ${bootstrapToken},kubelet-bootstrap,10001,"system:kubelet-bootstrap"
@@ -653,7 +726,7 @@ EOF
     do
        sed -i "4 a\"${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
        sed  '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
-       ((nIndex++))
+       let nIndex+=1
     done
     sed -i "4 a\"${k8sVIP}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
     sed  '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
@@ -665,6 +738,7 @@ EOF
     fi
 
 for i in ${MasterIP[*]};do
+echo > /tmp/kube-apiserver.conf
 cat << EOF > /tmp/kube-apiserver.conf
 KUBE_API_ARGS="--admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,NodeRestriction \\
   --advertise-address=$i \\
@@ -697,13 +771,44 @@ KUBE_API_ARGS="--admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount
   --log-dir=/var/log/kubernetes/apiserver \\
   --v=2  1>>/var/log/kubernetes/apiserver/kube-apiserver.log 2>&1"
 EOF
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/apiserver ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/apiserver目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /etc/kubernetes/pki/apiserver/  
+    fi
+    
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/bootstrap ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/bootstrap目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /etc/kubernetes/pki/bootstrap
+    fi
 
-    ssh $i mkdir -p /etc/kubernetes/pki/apiserver/ /etc/kubernetes/pki/bootstrap /var/log/kubernetes/apiserver  &> /dev/null
-    scp /etc/kubernetes/pki/bootstrap/token.csv $i:/etc/kubernetes/pki/bootstrap/
-    scp /etc/kubernetes/pki/apiserver/apiserver* $i:/etc/kubernetes/pki/apiserver/
-    scp /etc/systemd/system/kube-apiserver.service $i:/etc/systemd/system/kube-apiserver.service
+    if $(ssh $i "[[ -d /var/log/kubernetes/apiserver  ]]");then
+        echo -e "\033[32m$i 已存在/var/log/kubernetes/apiserver目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/log/kubernetes/bootstrap
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/bootstrap/token.csv ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/bootstrap/token.csv文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/bootstrap/token.csv $i:/etc/kubernetes/pki/bootstrap/ 
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/apiserver/apiserver-key.pem ]]");then
+        echo -e "\033[32m$i 已存在kube-apiserver证书私钥文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/apiserver/apiserver* $i:/etc/kubernetes/pki/apiserver/ 
+    fi
+
+    if $(ssh $i "[[ -f /etc/systemd/system/kube-apiserver.service ]]");then
+        echo -e "\033[32m$i 已存在kube-apiserver service文件，跳过此步骤..........\033[0m"
+    else
+        scp /etc/systemd/system/kube-apiserver.service $i:/etc/systemd/system/kube-apiserver.service &
+    fi
+
     scp /tmp/kube-apiserver.conf $i:/usr/local/etc/kube-apiserver.conf
-    ssh $i "systemctl enable kube-apiserver && systemctl start kube-apiserver &>/dev/null"
+    ssh $i "systemctl enable kube-apiserver && systemctl start kube-apiserver"
     if [ $? ];then
         echo -e "\033[32m $i kube-apiserver 启动成功\033[0m"
     else
@@ -713,7 +818,7 @@ done
 }
 
 deployControllerManager(){
-    mkdir -p /etc/kubernetes/pki/controller-manager
+    if [ ! -d /etc/kubernetes/pki/controller-manager ];then mkdir -p /etc/kubernetes/pki/controller-manager ;fi
     cd /etc/kubernetes/pki/controller-manager
     cat << EOF > /etc/kubernetes/pki/controller-manager/controller-manager-csr.json
     {
@@ -738,7 +843,7 @@ deployControllerManager(){
         ]
     }
 EOF
-    if [[ ! -e /etc/kubernetes/pki/controller-manager.pem && ! -e /etc/kubernetes/pki/controller-manager-key.pem ]];then
+    if [[ ! -e /etc/kubernetes/pki/controller-manager/controller-manager.pem && ! -e /etc/kubernetes/pki/controller-manager/controller-manager-key.pem ]];then
         cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem  -ca-key=/etc/kubernetes/pki/CA/ca-key.pem -config=/etc/kubernetes/pki/CA/ca-config.json -profile=kubernetes /etc/kubernetes/pki/controller-manager/controller-manager-csr.json | cfssljson -bare controller-manager
     fi
 
@@ -795,21 +900,50 @@ kubectl config set-context system:kube-controller-manager@kubernetes \
 kubectl config use-context system:kube-controller-manager@kubernetes --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
 
 for i in ${MasterIP[*]};do
-    ssh $i mkdir -p  /etc/kubernetes/pki/controller-manager /var/log/kubernetes/controller-manager/ &>/dev/null
-    scp /etc/kubernetes/pki/controller-manager/* $i:/etc/kubernetes/pki/controller-manager/
-    scp /usr/local/etc/kube-controller-manager.conf $i:/usr/local/etc/kube-controller-manager.conf
-    scp /etc/systemd/system/kube-controller-manager.service $i:/etc/systemd/system/kube-controller-manager.service
-    ssh $i "systemctl enable kube-controller-manager && systemctl start kube-controller-manager &>/dev/null "
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/controller-manager ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/controller-manager目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p  /etc/kubernetes/pki/controller-manager
+    fi
+
+    if $(ssh $i "[[ -d /var/log/kubernetes/controller-manager/ ]]");then
+        echo -e "\033[32m$i 已存在/var/log/kubernetes/controller-manager目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p  /etc/kubernetes/pki/controller-manager
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/controller-manager/controller-manager-key.pem ]]");then
+        echo -e "\033[32m$i 已存在kube-controller-manager证书私钥文件,跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/controller-manager/* $i:/etc/kubernetes/pki/controller-manager/ 
+    fi
+
+    # if $(ssh $ "[[ -f /etc/kubernetes/pki/controller-manager.conf ]]");then
+    #     echo -e "\033[32m$i 已存在kube-controller-manager证书私钥文件,跳过此步骤..........\033[0m"
+    # else
+    #     scp /usr/local/etc/kube-controller-manager.conf $i:/usr/local/etc/kube-controller-manager.conf &
+    # fi
+
+    scp /usr/local/etc/kube-controller-manager.conf $i:/usr/local/etc/kube-controller-manager.conf 
+
+    if $(ssh $i "[[ -f /etc/systemd/system/kube-controller-manager.service ]]");then
+        echo -e "\033[32m$i 已存在kube-controller-manager systemd service文件,跳过此步骤..........\033[0m"
+    else
+        scp /etc/systemd/system/kube-controller-manager.service $i:/etc/systemd/system/kube-controller-manager.service 
+    fi
+
+    ssh $i "systemctl enable kube-controller-manager && systemctl start kube-controller-manager"
     if [ $? ];then
         echo -e "\033[32m $i kube-controller-manager 启动成功\033[0m"
     else
-        echo -e "\033[31m $i kube-apiserver 启动失败，请检查日志文件\033[0m"
+        echo -e "\033[31m $i kube-controller-manager 启动失败，请检查日志文件\033[0m"
     fi
 done
 }
 
 deployScheduler(){
-    mkdir -p /etc/kubernetes/pki/scheduler/ /var/log/kubernetes/scheduler &>/dev/null
+    if [[ ! -d /etc/kubernetes/pki/scheduler ]];then mkdir -p /etc/kubernetes/pki/scheduler/;fi
+    # /var/log/kubernetes/scheduler 
     cd /etc/kubernetes/pki/scheduler/
     cat << EOF > /etc/kubernetes/pki/scheduler/scheduler-csr.json
 {
@@ -842,6 +976,7 @@ if [[ ! -e /etc/kubernetes/pki/scheduler/scheduler-key.pem && ! -e /etc/kubernet
     -profile=kubernetes /etc/kubernetes/pki/scheduler/scheduler-csr.json | cfssljson -bare scheduler
 fi
 
+if [[ ! -f /etc/kubernetes/scheduler/scheduler.conf ]];then
     kubectl config set-cluster kubernetes \
     --certificate-authority=/etc/kubernetes/pki/CA/ca.pem \
     --embed-certs=true \
@@ -857,6 +992,7 @@ fi
     --user=system:kube-scheduler \
     --kubeconfig=scheduler.conf
     kubectl config use-context system:kube-scheduler@kubernetes --kubeconfig=scheduler.conf 
+    fi
 
     cat << EOF > /etc/systemd/system/kube-scheduler.service
 [Unit]
@@ -885,11 +1021,32 @@ KUBE_SCHEDULER_ARGS="--master=https://${k8sVIP}:8443 \
 EOF
 
 for i in ${MasterIP[*]};do
-    ssh $i "mkdir -p /etc/kubernetes/pki/scheduler/ /var/log/kubernetes/scheduler/ &> /dev/null"
-    scp /usr/local/etc/kube-scheduler.conf $i:/usr/local/etc/
-    scp /etc/kubernetes/pki/scheduler/* $i:/etc/kubernetes/pki/scheduler/
-    scp /etc/systemd/system/kube-scheduler.service $i:/etc/systemd/system/
-    ssh $i "systemctl enable kube-scheduler && systemctl start kube-scheduler &> /dev/null"
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/scheduler ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/scheduler/目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /etc/kubernetes/pki/scheduler/ 
+    fi
+    
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/scheduler ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/scheduler/目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/log/kubernetes/scheduler/
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/scheduler/scheduler-key.pem ]]");then
+        echo -e "\033[32m$i 已存在kube-scheduler证书私钥文件,跳过此步骤..........\033[0m"
+    else
+        scp /etc/kubernetes/pki/scheduler/* $i:/etc/kubernetes/pki/scheduler/
+    fi
+
+    if $(ssh $i "[[ -f /etc/systemd/system/kube-scheduler.service ]]");then
+        echo -e "\033[32m$i 已存在kube-scheduler systemd service文件,跳过此步骤..........\033[0m"
+    else
+        scp /etc/systemd/system/kube-scheduler.service $i:/etc/systemd/system/ 
+    fi
+
+    scp /usr/local/etc/kube-scheduler.conf $i:/usr/local/etc/ 
+    ssh $i "systemctl enable kube-scheduler && systemctl start kube-scheduler"
     if [ $? ];then
         echo -e "\033[32m $i kube-scheduler 启动成功\033[0m"
     else
@@ -899,13 +1056,24 @@ done
 }
 
 deployKubelet(){
-	kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap &> /dev/null
+    kubectl get clusterrolebinding kubelet-bootstrap
+    if [ $? ];then
+        echo -e "\033[32mClusterRoleBinding kubelet-bootstrap 已存在，跳过此步骤..........\033[0m"
+    else
+	    kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap
+    fi
+
 	cd /etc/kubernetes/pki/bootstrap/
-	echo ${bootstrapToken}
-	kubectl config set-cluster kubernetes 	--certificate-authority=/etc/kubernetes/pki/CA/ca.pem --embed-certs=true --server=https://${k8sVIP}:8443 --kubeconfig=bootstrap.kubeconfig
-	kubectl config set-credentials kubelet-bootstrap --token=${bootstrapToken} --kubeconfig=bootstrap.kubeconfig	
-	kubectl config set-context default --cluster=kubernetes --user=kubelet-bootstrap --kubeconfig=bootstrap.kubeconfig	
-	kubectl config use-context default --kubeconfig=bootstrap.kubeconfig	
+    echo -e "\033[32mToken是:${bootstrapToken}\033[0m"
+    echo
+    if [[ -f /etc/kubernetes/pki/bootstrap/boostrap.kubeconfig ]];then
+        echo -e "\033[32m已存在bootstrap.kubeconfig，跳过此步骤..........\033[0m"
+    else
+	    kubectl config set-cluster kubernetes 	--certificate-authority=/etc/kubernetes/pki/CA/ca.pem --embed-certs=true --server=https://${k8sVIP}:8443 --kubeconfig=bootstrap.kubeconfig
+	    kubectl config set-credentials kubelet-bootstrap --token=${bootstrapToken} --kubeconfig=bootstrap.kubeconfig	
+	    kubectl config set-context default --cluster=kubernetes --user=kubelet-bootstrap --kubeconfig=bootstrap.kubeconfig	
+	    kubectl config use-context default --kubeconfig=bootstrap.kubeconfig	
+    fi
 
 cat << EOF > /etc/systemd/system/kubelet.service
 [Unit]
@@ -941,11 +1109,36 @@ KUBELET_ARGS="--address=$i \\
   --log-dir=/var/log/kubernetes/kubelet \\
   --v=2"
 EOF
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/bootstrap/ ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/bootstrap目录,跳过此步骤..........\033[0m"
+    else
+    	ssh $i mkdir -p /etc/kubernetes/pki/bootstrap/
+    fi
 
-	ssh $i mkdir -p /etc/kubernetes/pki/bootstrap/ /var/lib/kubelet /var/log/kubernetes/kubelet &>/dev/null
-	scp /etc/systemd/system/kubelet.service $i:/etc/systemd/system/
-	scp /tmp/kubelet.conf $i:/usr/local/etc/
-	scp /etc/kubernetes/pki/bootstrap/bootstrap.kubeconfig $i:/etc/kubernetes/pki/bootstrap/
+    if $(ssh $i "[[ -d /var/lib/kubelet ]]");then
+        echo -e "\033[32m$i 已存在/var/lib/kubelet目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/lib/kubelet 
+    fi
+
+    if $(ssh $i "[[ -d /var/log/kubernetes/kubelet ]]");then
+        echo -e "\033[32m$i 已存在/var/log/kubernetes/kubelet目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/log/kubernetes/kubelet 
+    fi
+
+    if $(ssh $i "[[ -f /etc/systemd/system/kubelet.service ]]");then
+        echo -e "\033[32m$i 已存在kubelet systemd service文件,跳过此步骤..........\033[0m"
+    else
+    	scp /etc/systemd/system/kubelet.service $i:/etc/systemd/system/ 
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/bootstrap/bootstrap.kubeconfig ]]");then
+        echo -e "\033[32m$i 已存在kubelet bootstrap kubeconfig文件,跳过此步骤..........\033[0m"
+    else
+	    scp /etc/kubernetes/pki/bootstrap/bootstrap.kubeconfig $i:/etc/kubernetes/pki/bootstrap/ 
+    fi
+	scp /tmp/kubelet.conf $i:/usr/local/etc/ 
 	ssh $i "systemctl enable kubelet && systemctl start kubelet"
 	if [ $? ];then
 	    echo -e "\033[32m $i kubelet 启动成功\033[0m"
@@ -956,17 +1149,22 @@ done
 
 #确保在所有节点都发出了CSR之后再进行approve操作
 sleep 10
-for i in $(kubectl get csr | awk 'NR>1{print $1}' );do kubectl certificate approve $i ;done
-wget http://120.79.32.103:808/pause-amd64-3.0.tar.gz -O /tmp/pause-amd64-3.0.tar.gz
+if [ $? ];then
+    for i in $(kubectl get csr | awk 'NR>1{print $1}' );do kubectl certificate approve $i ;done
+else
+	echo -e "\033[31m 未找到有CSR签署请求，请检查kubelet日志,退出脚本请按Ctrl+C\033[0m"
+fi
+
+wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/pause/3.0/pause-amd64-3.0.tar.gz -O /tmp/pause-amd64-3.0.tar.gz
 for i in ${NodeIP[*]};do
-    scp /tmp/pause-amd64-3.0.tar.gz $i:/tmp
-    ssh $i "docker image load -i /tmp/pause-amd64-3.0.tar.gz"
+    scp /tmp/pause-amd64-3.0.tar.gz $i:/tmp 
+    ssh $i docker image load -i /tmp/pause-amd64-3.0.tar.gz
 done
 }
 
 deployKubeProxy(){
-    mkdir -p /etc/kubernetes/pki/proxy		
-    cd /etc/kubernetes/pki/proxy
+    if [ ! -d /etc/kubernetes/pki/proxy ];then mkdir -p /etc/kubernetes/pki/proxy;fi
+	cd /etc/kubernetes/pki/proxy
     cat << EOF > proxy-csr.json
 {
     "CN": "system:kube-proxy",
@@ -991,21 +1189,14 @@ EOF
 		cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem -ca-key=/etc/kubernetes/pki/CA/ca-key.pem -config=/etc/kubernetes/pki/CA/ca-config.json -profile=kubernetes proxy-csr.json | cfssljson -bare proxy	
 	fi
 
-	kubectl config set-cluster kubernetes \
-	--certificate-authority=/etc/kubernetes/pki/CA/ca.pem \
-	--embed-certs=true \
-	--server=https://${k8sVIP}:8443 \
-	--kubeconfig=proxy.kubeconfig
-	kubectl config set-credentials system:kube-proxy \
-	--client-certificate=/etc/kubernetes/pki/proxy/proxy.pem \
-	--embed-certs=true \
-	--client-key=/etc/kubernetes/pki/proxy/proxy-key.pem \
-	--kubeconfig=proxy.kubeconfig
-	 kubectl config set-context system:kube-proxy@kubernetes \
-	--cluster=kubernetes \
-	--user=system:kube-proxy \
-	--kubeconfig=proxy.kubeconfig
-	kubectl config use-context system:kube-proxy@kubernetes --kubeconfig=proxy.kubeconfig
+    if [[ -f /etc/kubernetes/pki/proxy/proxy.kubeconfig  ]];then
+        echo -e "\033[32m$i 已存在kube-proxy文件,跳过此步骤..........\033[0m"
+    else
+	    kubectl config set-cluster kubernetes --certificate-authority=/etc/kubernetes/pki/CA/ca.pem --embed-certs=true --server=https://${k8sVIP}:8443 	--kubeconfig=proxy.kubeconfig
+    	kubectl config set-credentials system:kube-proxy --client-certificate=/etc/kubernetes/pki/proxy/proxy.pem --embed-certs=true --client-key=/etc/kubernetes/pki/proxy/proxy-key.pem 	--kubeconfig=proxy.kubeconfig 
+        kubectl config set-context system:kube-proxy@kubernetes --cluster=kubernetes --user=system:kube-proxy --kubeconfig=proxy.kubeconfig
+        kubectl config use-context system:kube-proxy@kubernetes --kubeconfig=proxy.kubeconfig
+    fi
 
 cat << EOF > /etc/systemd/system/kube-proxy.service
 [Unit]
@@ -1035,11 +1226,39 @@ KUBE_PROXY_ARGS="--bind-address=$i \\
   --log-dir=/var/log/kubernetes/proxy \\
   --v=2"
 EOF
-	ssh $i mkdir -p /etc/kubernetes/pki/proxy/  /var/log/kubernetes/proxy  /var/lib/kube-proxy  &> /dev/null
-	scp /etc/systemd/system/kube-proxy.service $i:/etc/systemd/system/
-	scp /etc/kubernetes/pki/proxy/* $i:/etc/kubernetes/pki/proxy/
-	scp /tmp/kube-proxy.conf $i:/usr/local/etc/
-	ssh $i "systemctl enable kube-proxy && systemctl start kube-proxy "
+    if $(ssh $i "[[ -d /etc/kubernetes/pki/proxy ]]");then
+        echo -e "\033[32m$i 已存在/etc/kubernetes/pki/proxy/目录,跳过此步骤..........\033[0m"
+    else
+	    ssh $i mkdir -p /etc/kubernetes/pki/proxy/  /var/lib/kube-proxy
+    fi
+
+    if $(ssh $i "[[ -d /var/log/kubernetes/proxy ]]");then
+        echo -e "\033[32m$i 已存在/var/log/kubernetes/proxy/目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/log/kubernetes/proxy/
+    fi
+
+    if $(ssh $i "[[ -d /var/lib/kube-proxy ]]");then
+        echo -e "\033[32m$i 已存在/var/lib/kube-proxy目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i mkdir -p /var/lib/kube-proxy
+    fi
+
+    if $(ssh $i "[[ -f /etc/kubernetes/pki/proxy/proxy-key.pem ]]");then
+        echo -e "\033[32m$i 已存在kube-proxy证书私钥文件,跳过此步骤..........\033[0m"
+    else
+	    scp /etc/kubernetes/pki/proxy/* $i:/etc/kubernetes/pki/proxy/ 
+    fi
+
+	scp /tmp/kube-proxy.conf $i:/usr/local/etc/ 
+
+    if $(ssh $i "[[ -f /etc/systemd/system/kube-proxy.service ]]");then
+        echo -e "\033[32m$i 已存在kube-proxy systemd service文件,跳过此步骤..........\033[0m"
+    else
+	    scp /etc/systemd/system/kube-proxy.service $i:/etc/systemd/system/
+    fi
+
+	ssh $i "systemctl enable kube-proxy && systemctl start kube-proxy"
 	if [ $? ];then
 	    echo -e "\033[32m $i kube-proxy 启动成功\033[0m"
 	else
@@ -1049,7 +1268,7 @@ done
 }
 
 deployIngressController(){
-    echo -e "\033[32m 正在部署nginx-ingress-controller.. \033[0m"
+	echo -e "\033[32m 正在部署nginx-ingress-controller.. \033[0m"
     if [ ! -e /tmp/nginx-ingress-controller-0.27.1.tar.gz ];then
         wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-0.27.1.tar.gz -O /tmp/nginx-ingress-controller-0.27.1.tar.gz
     fi
@@ -1057,7 +1276,7 @@ deployIngressController(){
     wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
     for i in ${NodeIP[*]};do
         scp /tmp/nginx-ingress-controller-0.27.1.tar.gz /tmp/nginx-ingress-controller-mandatory.yaml $i:/tmp/
-        ssh $i exec  "docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz"
+        ssh $i exec  docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz
     done
     kubectl apply -f /tmp/nginx-ingress-controller-mandatory.yaml
     kubectl apply -f /tmp/nginx-ingress-controller-service.yaml
@@ -1066,19 +1285,19 @@ deployIngressController(){
 }
 
 deployCoreDNS(){
-   echo
-   echo -e "\033[32m 正在部署CoreDNS..... \033[0m"
+    echo
+	echo -e "\033[32m 正在部署CoreDNS..... \033[0m"
    if [ ! -e /tmp/coredns-deployment-1.8.0.tar.gz ];then
-        wget http://120.79.32.103:808/coredns-deployment-1.8.0.tar.gz -O /tmp/coredns-deployment-1.8.0.tar.gz
+        wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/coredns/1.8.0/coredns-deployment-1.8.0.tar.gz -O /tmp/coredns-deployment-1.8.0.tar.gz
         tar xvf /tmp/coredns-deployment-1.8.0.tar.gz -C /tmp
    fi
    if [ ! -e /tmp/coredns-image-1.8.0.tar.gz ];then
-        wget http://120.79.32.103:808/coredns-image-1.8.0.tar.gz -O /tmp/coredns-image-1.8.0.tar.gz
+        wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/coredns/1.8.0/coredns-image-1.8.0.tar.gz -O /tmp/coredns-image-1.8.0.tar.gz
    fi
 
    for i in ${NodeIP[*]};do
         scp /tmp/coredns-image-1.8.0.tar.gz $i:/tmp/ 
-        ssh $i exec "docker image load -i /tmp/coredns-image-1.8.0.tar.gz"
+        ssh $i exec docker image load -i /tmp/coredns-image-1.8.0.tar.gz
    done
    bash /tmp/deployment-master/kubernetes/deploy.sh -i ${clusterDnsIP} -s | kubectl apply -f -
    sleep 5
