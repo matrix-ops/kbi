@@ -4,6 +4,7 @@ Kubernetes Binarization Installer
 ```shell
 bash kbi.sh
 #根据提示进行操作即可，注意，输入时不能携带特殊字符
+#本着提升人机交互性的原则，工具暂时不提供命令行选项。如果需要安装的节点超过100个以上，可以联系我或者你也可以将100个IP每个IP以空格分隔直接粘贴进去。
 ```
 - 输入IP和K8s版本，即可完成K8s二进制高可用安装（含Ingress-Controller和CoreDNS）
 - 最少要求3个节点，即3个Master同时作为Node来部署
