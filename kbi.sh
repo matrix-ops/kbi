@@ -180,7 +180,7 @@ for i in ${nodeCount[*]};do
     echo 
 done
 
-#iptables
+# iptables暂时没有开起来
 echo -e "\033[32m正在为各节点配置iptables规则..........\033[0m"
 cat << EOF > /etc/sysconfig/iptables
 *filter
