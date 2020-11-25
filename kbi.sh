@@ -7,7 +7,6 @@ echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32m请在部署节点执行安装操作，部署节点可以是集群节点中的其中一个,或是任何可以连接至目标K8s集群的节点\033[0m"
-echo -e "\033[32m请提前在所有节点上关闭SELinux和Firewalld，并且做好节点之间SSH互信，免密登录\033[0m"
 read -p "输入Master节点IP,以空格分割:" -a MasterIP
 read -p "输入Node节点IP,以空格分割,默认与Master节点相同:" -a NodeIP
 read -p "输入K8s集群VIP:" k8sVIP
