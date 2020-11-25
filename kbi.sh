@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kubernetes Binarization Installer v1.0.0
+# Kubernetes Binarization Installer v1.0.1
 # Author Dolphin-Matrix Ops
 set -e
 echo -e "\033[32m========================================================================\033[0m"
@@ -7,6 +7,7 @@ echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32m请在部署节点执行安装操作，部署节点可以是集群节点中的其中一个,或是任何可以连接至目标K8s集群的节点\033[0m"
+echo -e "\033[32m如果是在云环境，请确保安全组放通VRRP协议（IP协议号112），在OpenStack中，还需要配置Master节点端口的allowed-port-pairs功能\033[0m"
 read -p "输入Master节点IP,以空格分割:" -a MasterIP
 read -p "输入Node节点IP,以空格分割,默认与Master节点相同:" -a NodeIP
 read -p "输入K8s集群VIP:" k8sVIP
@@ -167,11 +168,11 @@ for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
     ssh $i "yum install -y curl sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
-    ssh $i systemctl mask firewalld && setenforce 0  &> /dev/null && sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config &> /dev/null
+    ssh $i "systemctl mask firewalld ; setenforce 0 ; sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
     if [ -z "$dockerVersion" ];then
-        ssh $i yum install docker-ce -y
+        ssh $i "yum install docker-ce -y"
     else
-        ssh $i yum install docker-ce-$dockerVersion -y
+        ssh $i "yum install docker-ce-$dockerVersion -y"
     fi
     scp /etc/kubernetes/pki/CA/* $i:/etc/kubernetes/pki/CA
     echo -e "\033[32m节点$i 初始化安装完成\033[0m" 
@@ -179,7 +180,7 @@ for i in ${nodeCount[*]};do
     echo 
 done
 
-# iptables暂时没有开起来
+#iptables
 echo -e "\033[32m正在为各节点配置iptables规则..........\033[0m"
 cat << EOF > /etc/sysconfig/iptables
 *filter
@@ -204,7 +205,7 @@ COMMIT
 EOF
 for i in ${nodeCount[*]};do
     scp /etc/sysconfig/iptables $i:/etc/sysconfig/iptables
-    ssh $i systemctl restart iptables
+    ssh $i "systemctl restart iptables"
 done
 
 #配置NTP
@@ -228,13 +229,13 @@ rtcsync
 logdir /var/log/chrony
 EOF
 scp /etc/chrony.conf ${MasterIP[0]}:/etc/
-ssh ${MasterIP[0]} systemctl restart chronyd
+ssh ${MasterIP[0]} "systemctl restart chronyd"
 echo -e "\033[32mNTP服务器完成..........\033[0m"
 }
 
 deployHaproxyKeepalived (){
 #生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
-cat << EOF >> /tmp/haproxy.cfg 
+cat << EOF > /tmp/haproxy.cfg 
 global
     log /dev/log    local0
     log /dev/log    local1 notice
@@ -277,7 +278,7 @@ EOF
 weight=1
 for i in ${MasterIP[*]};do
 ((keepalivedPriority=$weight+100))
-ssh $i exec "yum install haproxy keepalived -y && systemctl enable haproxy keepalived"
+ssh $i "yum install haproxy keepalived -y && systemctl enable haproxy keepalived"
 interfaceName=$(ssh $i "ip a | grep -i $i -B 2 | awk 'NR==1{print \$2}' | sed 's/://'")
 cat << EOF > /tmp/keepalived.conf
 global_defs {
@@ -358,7 +359,7 @@ fi
 
 index=0
 for i in ${MasterIP[*]};do
-if [ ! -d /tmp/etcd/ ];then ssh $i mkdir /tmp/etcd/ ;fi
+if [ ! -d /tmp/etcd/ ];then ssh $i "mkdir /tmp/etcd/" ;fi
 cat << EOF > /tmp/etcd/etcd.conf
 ETCD_ARGS="--name=etcd-$index \\
   --cert-file=/etc/kubernetes/pki/etcd/etcd.pem \\
@@ -367,10 +368,10 @@ ETCD_ARGS="--name=etcd-$index \\
   --peer-key-file=/etc/kubernetes/pki/etcd/etcd-key.pem \\
   --trusted-ca-file=/etc/kubernetes/pki/CA/ca.pem \\
   --peer-trusted-ca-file=/etc/kubernetes/pki/CA/ca.pem \\
-  --initial-advertise-peer-urls=https://${i}:2380 \\
-  --listen-peer-urls=https://${i}:2380 \\
-  --listen-client-urls=https://${i}:2379,http://127.0.0.1:2379 \\
-  --advertise-client-urls=https://${i}:2379 \\
+  --initial-advertise-peer-urls=https://$i:2380 \\
+  --listen-peer-urls=https://0.0.0.0:2380 \\
+  --listen-client-urls=https://0.0.0.0:2379 \\
+  --advertise-client-urls=https://$i:2379 \\
   --initial-cluster-token=etcd-cluster-1 \\
   --initial-cluster=etcd-0=https://${MasterIP[0]}:2380,etcd-1=https://${MasterIP[1]}:2380,etcd-2=https://${MasterIP[2]}:2380 \\
   --initial-cluster-state=new \\
@@ -412,13 +413,19 @@ EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/etcd/ ]]");then
         echo -e "\033[32m节点$i 已存在/etc/kubernetes/pki/etcd/目录，跳过此步骤..........\033[0m"
     else
-        ssh $i  mkdir -p /etc/kubernetes/pki/etcd/ /var/lib/etcd/
+        ssh $i "mkdir -p /etc/kubernetes/pki/etcd/"
     fi
 
     if $(ssh $i "[[ -d /var/lib/etcd/ ]]");then
         echo -e "\033[32m节点$i 已存在/var/lib/etcd/目录，跳过此步骤..........\033[0m"
     else
-        ssh $i  mkdir -p  /var/lib/etcd/
+        ssh $i "mkdir -p /var/lib/etcd/"
+    fi
+
+    if $(ssh $i "[[ -d /var/lib/etcd/ ]]");then
+        echo -e "\033[32m节点$i 已存在/var/lib/etcd/目录，跳过此步骤..........\033[0m"
+    else
+        ssh $i "mkdir -p  /var/lib/etcd/"
     fi
 
     if $(ssh $i "[[ -f /etc/kubernetes/pki/etcd/etcd-key.pem ]]");then
@@ -433,7 +440,8 @@ EOF
 done
 
 echo -e "\033[32m正在启动etcd.....\033[0m"
-ssh ${MasterIP[0]}  "systemctl enable etcd && systemctl start etcd " &
+ssh ${MasterIP[0]} "systemctl enable etcd && systemctl start etcd " &
+sleep 5
 
 for i in ${MasterIP[*]};do
     if [ ! $i = ${MasterIP[0]} ];then
@@ -504,7 +512,7 @@ kubectl config set-context admin@kubernetes \
 kubectl config use-context admin@kubernetes --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
 
 for i in ${MasterIP[*]};do
-     ssh $i mkdir -p /etc/kubernetes/pki/admin /root/.kube/ &>/dev/null &
+     ssh $i "mkdir -p /etc/kubernetes/pki/admin /root/.kube/ &"
      scp /etc/kubernetes/pki/admin/admin* $i:/etc/kubernetes/pki/admin/ 2> /dev/null
      scp /etc/kubernetes/pki/admin/admin.conf $i:/root/.kube/config 2> /dev/null
      echo -e "\033[32m${i} kubectl配置完成\033[0m"
@@ -1055,14 +1063,8 @@ done
 }
 
 deployKubelet(){
-    kubectl get clusterrolebinding kubelet-bootstrap
-    if [ $? ];then
-        echo -e "\033[32mClusterRoleBinding kubelet-bootstrap 已存在，跳过此步骤..........\033[0m"
-    else
-	    kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap
-    fi
-
-	cd /etc/kubernetes/pki/bootstrap/
+	kubectl create clusterrolebinding kubelet-bootstrap --clusterrole=system:node-bootstrapper --user=kubelet-bootstrap  &
+	cd /etc/kubernetes/pki/bootstrap/ 
     echo -e "\033[32mToken是:${bootstrapToken}\033[0m"
     echo
     if [[ -f /etc/kubernetes/pki/bootstrap/boostrap.kubeconfig ]];then
@@ -1111,19 +1113,19 @@ EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/bootstrap/ ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/bootstrap目录,跳过此步骤..........\033[0m"
     else
-    	ssh $i mkdir -p /etc/kubernetes/pki/bootstrap/
+    	ssh $i "mkdir -p /etc/kubernetes/pki/bootstrap/"
     fi
 
     if $(ssh $i "[[ -d /var/lib/kubelet ]]");then
         echo -e "\033[32m$i 已存在/var/lib/kubelet目录,跳过此步骤..........\033[0m"
     else
-        ssh $i mkdir -p /var/lib/kubelet 
+        ssh $i "mkdir -p /var/lib/kubelet"
     fi
 
     if $(ssh $i "[[ -d /var/log/kubernetes/kubelet ]]");then
         echo -e "\033[32m$i 已存在/var/log/kubernetes/kubelet目录,跳过此步骤..........\033[0m"
     else
-        ssh $i mkdir -p /var/log/kubernetes/kubelet 
+        ssh $i "mkdir -p /var/log/kubernetes/kubelet"
     fi
 
     if $(ssh $i "[[ -f /etc/systemd/system/kubelet.service ]]");then
@@ -1157,7 +1159,7 @@ fi
 wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/pause/3.0/pause-amd64-3.0.tar.gz -O /tmp/pause-amd64-3.0.tar.gz
 for i in ${NodeIP[*]};do
     scp /tmp/pause-amd64-3.0.tar.gz $i:/tmp 
-    ssh $i docker image load -i /tmp/pause-amd64-3.0.tar.gz
+    ssh $i "docker image load -i /tmp/pause-amd64-3.0.tar.gz"
 done
 }
 
@@ -1228,19 +1230,25 @@ EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/proxy ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/proxy/目录,跳过此步骤..........\033[0m"
     else
-	    ssh $i mkdir -p /etc/kubernetes/pki/proxy/  /var/lib/kube-proxy
-    fi
-
-    if $(ssh $i "[[ -d /var/log/kubernetes/proxy ]]");then
-        echo -e "\033[32m$i 已存在/var/log/kubernetes/proxy/目录,跳过此步骤..........\033[0m"
-    else
-        ssh $i mkdir -p /var/log/kubernetes/proxy/
+	    ssh $i "mkdir -p /etc/kubernetes/pki/proxy/"  /var/lib/kube-proxy
     fi
 
     if $(ssh $i "[[ -d /var/lib/kube-proxy ]]");then
         echo -e "\033[32m$i 已存在/var/lib/kube-proxy目录,跳过此步骤..........\033[0m"
     else
-        ssh $i mkdir -p /var/lib/kube-proxy
+	    ssh $i "mkdir -p /var/lib/kube-proxy"
+    fi
+
+    if $(ssh $i "[[ -d /var/log/kubernetes/proxy ]]");then
+        echo -e "\033[32m$i 已存在/var/log/kubernetes/proxy/目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i "mkdir -p /var/log/kubernetes/proxy/"
+    fi
+
+    if $(ssh $i "[[ -d /var/lib/kube-proxy ]]");then
+        echo -e "\033[32m$i 已存在/var/lib/kube-proxy目录,跳过此步骤..........\033[0m"
+    else
+        ssh $i "mkdir -p /var/lib/kube-proxy"
     fi
 
     if $(ssh $i "[[ -f /etc/kubernetes/pki/proxy/proxy-key.pem ]]");then
@@ -1275,7 +1283,7 @@ deployIngressController(){
     wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
     for i in ${NodeIP[*]};do
         scp /tmp/nginx-ingress-controller-0.27.1.tar.gz /tmp/nginx-ingress-controller-mandatory.yaml $i:/tmp/
-        ssh $i exec  docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz
+        ssh $i "docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz"
     done
     kubectl apply -f /tmp/nginx-ingress-controller-mandatory.yaml
     kubectl apply -f /tmp/nginx-ingress-controller-service.yaml
