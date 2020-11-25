@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kubernetes Binarization Installer v1.0.1
+# Kubernetes Binarization Installer v1.0.2
 # Author Dolphin-Matrix Ops
 set -e
 echo -e "\033[32m========================================================================\033[0m"
@@ -167,7 +167,7 @@ fi
 for i in ${nodeCount[*]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
-    ssh $i "yum install -y curl sysstat conntrack ipvsadm ipset jq iptables iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
+    ssh $i "yum install -y curl sysstat conntrack ipvsadm ipset jq iptables psmisc iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
     ssh $i "systemctl mask firewalld ; setenforce 0 ; sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
     if [ -z "$dockerVersion" ];then
         ssh $i "yum install docker-ce -y"
@@ -749,7 +749,7 @@ echo > /tmp/kube-apiserver.conf
 cat << EOF > /tmp/kube-apiserver.conf
 KUBE_API_ARGS="--admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,NodeRestriction \\
   --advertise-address=$i \\
-  --bind-address=$i \\
+  --bind-address=0.0.0.0 \\
   --insecure-port=0 \\
   --authorization-mode=Node,RBAC \\
   --runtime-config=rbac.authorization.k8s.io/v1beta1 \\
@@ -1096,7 +1096,7 @@ EOF
 
 for i in ${NodeIP[*]};do
 cat << EOF > /tmp/kubelet.conf
-KUBELET_ARGS="--address=$i \\
+KUBELET_ARGS="--address=0.0.0.0 \\
   --hostname-override=$i \\
   --pod-infra-container-image=gcr.io/google_containers/pause-amd64:3.0 \\
   --bootstrap-kubeconfig=/etc/kubernetes/pki/bootstrap/bootstrap.kubeconfig \\
@@ -1219,7 +1219,7 @@ EOF
 
 for i in ${NodeIP[*]};do
 cat << EOF > /tmp/kube-proxy.conf
-KUBE_PROXY_ARGS="--bind-address=$i \\
+KUBE_PROXY_ARGS="--bind-address=0.0.0.0 \\
   --hostname-override=$i \\
   --cluster-cidr=${serviceNet} \\
   --kubeconfig=/etc/kubernetes/pki/proxy/proxy.kubeconfig \\
@@ -1321,6 +1321,6 @@ deployApiserver
 deployControllerManager
 deployScheduler
 deployKubelet
-deployKubeProxy
+deployKubeProxy 
 deployIngressController
 deployCoreDNS
