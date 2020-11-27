@@ -455,8 +455,6 @@ done
 setKubectl(){
     if [[ ! $(which kube-apiserver) ]];then
         wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  -C /opt/&& cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag 
-        #如果上述链接失效，请使用如下链接
-        #wget http://dl.k8s.io/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  && cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag && mv * /usr/local/bin/
         for i in ${nodeCount[*]};do
             scp /opt/kubernetes/server/bin/* $i:/usr/local/bin/ 
             ssh $i "chmod a+x /usr/local/bin/*"
