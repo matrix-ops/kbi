@@ -308,7 +308,11 @@ scp /tmp/haproxy.cfg $i:/etc/haproxy/haproxy.cfg
 scp /tmp/keepalived.conf $i:/etc/keepalived/
 echo -e "\033[32m节点$i 正在启动Haproxy && Keepalived..........\033[0m"
 ssh $i "systemctl start haproxy keepalived && systemctl enable haproxy keepalived"
-echo -e "\033[32m节点${i} Haproxy && Keepalived启动完成\033[0m"
+if [ $? ];then
+	echo -e "\033[32m节点${i} Haproxy && Keepalived启动完成\033[0m"
+else
+	echo -e "\033[31m节点${i} Haproxy && Keepalived启动失败，请执行systemctl status keepalived haproxy查看日志\033[0m"
+fi
 echo 
 done
 }
