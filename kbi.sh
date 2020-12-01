@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kubernetes Binarization Installer v1.0.2
+# Kubernetes Binarization Installer v0.0.3
 # Author Dolphin-Matrix Ops
 set -e
 echo -e "\033[32m========================================================================\033[0m"
@@ -309,9 +309,9 @@ scp /tmp/keepalived.conf $i:/etc/keepalived/
 echo -e "\033[32m节点$i 正在启动Haproxy && Keepalived..........\033[0m"
 ssh $i "systemctl start haproxy keepalived && systemctl enable haproxy keepalived"
 if [ $? ];then
-	echo -e "\033[32m节点${i} Haproxy && Keepalived启动完成\033[0m"
+    echo -e "\033[32m节点${i} Haproxy && Keepalived启动完成\033[0m"
 else
-	echo -e "\033[31m节点${i} Haproxy && Keepalived启动失败，请执行systemctl status keepalived haproxy查看日志\033[0m"
+    echo -e "\033[31m节点${i} Haproxy && Keepalived启动失败，请执行systemctl status keepalived haproxy查看日志\033[0m"
 fi
 echo 
 done
@@ -464,7 +464,7 @@ setKubectl(){
             ssh $i "chmod a+x /usr/local/bin/*"
         done
     else
-        echo -e "\033[31m二进制文件已存在，跳过下载和复制Kubernetes v${k8sVersion}二进制文件的步骤\033[0m"
+        echo -e "\033[31m已检测到/usr/local/bin/目录下存在kubernetes二进制文件，如果需要重新下载和复制到其他节点上，请删除所有/usr/local/bin/目录下的kubernetes二进制文件，并重新运行工具 v${k8sVersion}二进制文件的步骤\033[0m"
     fi
 
     if [ ! -d /etc/kubernetes/pki/admin ];then mkdir -p /etc/kubernetes/pki/admin  ;fi
@@ -489,25 +489,30 @@ setKubectl(){
     }
 EOF
 
+if [[ ! -e /etc/kubernetes/pki/admin/admin.pem && ! -e /etc/kubernetes/pki/admin/admin-key.pem ]];then
 cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem \
 -ca-key=/etc/kubernetes/pki/CA/ca-key.pem \
 -config=/etc/kubernetes/pki/CA/ca-config.json \
 -profile=kubernetes /etc/kubernetes/pki/admin/admin-csr.json | cfssljson -bare admin
+fi
 
 kubectl config set-cluster kubernetes \
 --certificate-authority=/etc/kubernetes/pki/CA/ca.pem \
 --embed-certs=true \
 --server=https://${k8sVIP}:8443 \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
+
 kubectl config set-credentials admin \
 --client-certificate=/etc/kubernetes/pki/admin/admin.pem \
 --embed-certs=true \
 --client-key=/etc/kubernetes/pki/admin/admin-key.pem \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
+
 kubectl config set-context admin@kubernetes \
 --cluster=kubernetes \
 --user=admin \
 --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
+
 kubectl config use-context admin@kubernetes --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
 
 for i in ${MasterIP[*]};do
@@ -638,12 +643,6 @@ for i in ${nodeCount[*]};do
     else
         scp /etc/systemd/system/flanneld.service $i:/etc/systemd/system/flanneld.service 
     fi
-
-    # if $(ssh $i "[[ -f /usr/local/etc/flanneld.conf ]]");then
-    #     echo -e "\033[32m$i 已存在Flanneld配置文件，跳过此步骤..........\033[0m"
-    # else
-    #     scp /usr/local/etc/flanneld.conf $i:/usr/local/etc/flanneld.conf 
-    # fi
 
     scp /usr/local/etc/flanneld.conf $i:/usr/local/etc/flanneld.conf 
     scp /tmp/docker.service $i:/usr/lib/systemd/system/docker.service 
