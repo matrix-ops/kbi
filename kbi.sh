@@ -774,7 +774,7 @@ KUBE_API_ARGS="--admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount
   --event-ttl=1h \\
   --logtostderr=false \\
   --log-dir=/var/log/kubernetes/apiserver \\
-  --v=2  1>>/var/log/kubernetes/apiserver/kube-apiserver.log 2>&1"
+  --v=2"
 EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/apiserver ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/apiserver目录，跳过此步骤..........\033[0m"
@@ -885,7 +885,7 @@ KUBE_CONTROLLER_MANAGER_ARGS="--master=https://${k8sVIP}:8443 \\
   --leader-elect=true \\
   --logtostderr=false \\
   --log-dir=/var/log/kubernetes/controller-manager \\
-  --v=2  1>>/var/log/kubernetes/kube-controller-manager.log 2>&1"
+  --v=2"
 EOF
 
 kubectl config set-cluster kubernetes \
