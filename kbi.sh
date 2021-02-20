@@ -92,7 +92,6 @@ net.ipv4.ip_forward=1
 kernel.core_pattern=core
 net.bridge.bridge-nf-call-iptables=1
 net.bridge.bridge-nf-call-ip6tables=1
-net.ipv4.tcp_tw_recycle=0
 vm.swappiness=0
 vm.overcommit_memory=1
 vm.panic_on_oom=0
