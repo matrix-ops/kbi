@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kubernetes Binarization Installer v0.0.3
+# Kubernetes Binarization Installer v0.0.4
 # Author Dolphin-Matrix Ops
 set -e
 echo -e "\033[32m========================================================================\033[0m"
