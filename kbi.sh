@@ -121,11 +121,11 @@ cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
 {
     "signing": {
         "default": {
-            "expiry": "87600h"
+            "expiry": "876000h"
         },
         "profiles": {
             "kubernetes": {
-                "expiry": "87600h",
+                "expiry": "876000h",
                 "usages": [
                     "signing",
                     "key encipherment",
@@ -139,6 +139,10 @@ cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
 EOF
 cat << EOF > /etc/kubernetes/pki/CA/ca-csr.json
 {
+    "CA": {
+        "expiry": "876000h",
+        "pathlen": 0
+    },
     "CN": "kubernetes",
     "key": {
         "algo": "rsa",
