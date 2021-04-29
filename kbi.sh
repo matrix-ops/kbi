@@ -167,6 +167,7 @@ for i in ${nodeCount[*]};do
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
     ssh $i "yum install -y curl sysstat conntrack ipvsadm ipset jq iptables psmisc iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
     ssh $i "systemctl mask firewalld ; setenforce 0 ; sed -i 's/SELINUX=enforcing/SELINUX=disabled/' /etc/selinux/config"
+    ssh $i "modprobe br_netfilter ip_vs_rr nf_conntrack nf_conntrack_ipv4 &> /dev/null"
     if [ -z "$dockerVersion" ];then
         ssh $i "yum install docker-ce -y"
     else
@@ -1224,6 +1225,7 @@ KUBE_PROXY_ARGS="--bind-address=0.0.0.0 \\
   --kubeconfig=/etc/kubernetes/pki/proxy/proxy.kubeconfig \\
   --logtostderr=false \\
   --log-dir=/var/log/kubernetes/proxy \\
+  --proxy-mode=ipvs \\
   --v=2"
 EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/proxy ]]");then
