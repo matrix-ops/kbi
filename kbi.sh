@@ -1226,6 +1226,10 @@ KUBE_PROXY_ARGS="--bind-address=0.0.0.0 \\
   --logtostderr=false \\
   --log-dir=/var/log/kubernetes/proxy \\
   --proxy-mode=ipvs \\
+  --ipvs-scheduler=wrr \\
+  --ipvs-min-sync-period=5s \\
+  --ipvs-sync-period=5s \\
+  --masquerade-all \\
   --v=2"
 EOF
     if $(ssh $i "[[ -d /etc/kubernetes/pki/proxy ]]");then
