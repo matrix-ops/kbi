@@ -734,12 +734,12 @@ EOF
     nodeCountLen=${#nodeCount[*]}
     while (( nIndex < nodeCountLen ))
     do
-       sed -i "4 a\"      ${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
-    #    sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
-       let nIndex+=1
+       sed -i "4 a\"${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
+       sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
+     let nIndex+=1
     done
     sed -i "4 a\"${k8sVIP}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
-    sed  '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
+    sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
     if [[ ! -e /etc/kubernetes/pki/apiserver.pem && ! -e /etc/kubernetes/pki/apiserver/apiserver-key.pem ]];then
         cfssl gencert -ca=/etc/kubernetes/pki/CA/ca.pem \
         -ca-key=/etc/kubernetes/pki/CA/ca-key.pem \
