@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kubernetes Binarization Installer v0.0.4
-# Author Dolphin-Matrix Ops
+# Author matrix-ops zhangweilong Dolphin
 set -e
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32mKubernetes Binarization Installer\033[0m"
@@ -15,9 +15,9 @@ read -p "输入Pod网段,以CIDR格式表示,默认172.23.0.0/16(按回车跳过
 read -p "输入Service网段,以CIDR格式表示,默认10.253.0.0/16(按回车跳过):" serviceNet
 read -p "输入Kubernetes版本,默认1.18.10(按回车跳过): " k8sVersion
 read -p "输入docker-ce版本,默认最新版(按回车跳过): " dockerVersion
-#Master节点数量
+# Master节点数量
 mCount=${#MasterIP[@]}
-#Node节点数量
+# Node节点数量
 nCount=${#NodeIP[@]}
 if [ $nCount -eq 0 ];then
     nodeCount=(${MasterIP[*]})
@@ -58,7 +58,7 @@ autoSSHCopy(){
     for i in ${nodeCount[*]};do ssh-copy-id $i;done
 }
 
-#Preparation
+# Preparation
 preparation(){
 echo -e "\033[32m开始执行部署流程..........\033[0m"
 cat << EOF > /etc/yum.repos.d/docker-ce.repo
@@ -101,7 +101,7 @@ fs.nr_open=52706963
 net.ipv6.conf.all.disable_ipv6=1
 EOF
 
-#复制阿里云yum源配置文件和kubernetes.conf内核参数文件并安装依赖包
+# 复制阿里云yum源配置文件和kubernetes.conf内核参数文件并安装依赖包
 if [[ ! -e /usr/local/bin/cfssl || ! -e /usr/local/bin/cfssljson ]];then
     yum install wget -y &> /dev/null
     wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/cfssl/cfssl -O /usr/local/bin/cfssl 
@@ -112,7 +112,7 @@ fi
 chmod a+x /usr/local/bin/*
 
 if [ ! -d /etc/kubernetes/pki/CA ];then mkdir -p /etc/kubernetes/pki/CA ;fi
-#生成CA证书和私钥
+# 生成CA证书和私钥
 echo -e "\033[32m生成CA自签证书和私钥..........\033[0m"
 cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
 {
@@ -179,7 +179,7 @@ for i in ${nodeCount[*]};do
     echo 
 done
 
-#iptables
+# iptables
 echo -e "\033[32m正在为各节点配置iptables规则..........\033[0m"
 cat << EOF > /etc/sysconfig/iptables
 *filter
@@ -207,8 +207,8 @@ for i in ${nodeCount[*]};do
     ssh $i "systemctl restart iptables"
 done
 
-#配置NTP
-#将以输入的第一个MasterIP作为NTP服务器
+# 配置NTP
+# 将以输入的第一个MasterIP作为NTP服务器
 echo -e "\033[32m正在配置NTP服务器，服务器地址为${MasterIP[0]}..........\033[0m"
 allowNTP=${MasterIP[0]}
 netNTP=$(echo $allowNTP | awk -F'.' '{print $1,$2 }' | sed  's/ /./')
@@ -233,7 +233,7 @@ echo -e "\033[32mNTP服务器完成..........\033[0m"
 }
 
 deployHaproxyKeepalived (){
-#生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
+# 生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
 for i in ${MasterIP[*]};do ssh $i useradd keepalived_script;done
 for i in ${MasterIP[*]};do ssh $i "echo 'keepalived_script ALL = (root) NOPASSWD:ALL' > /etc/sudoers.d/keepalived_script";done
 cat << EOF > /tmp/haproxy.cfg 
@@ -275,7 +275,7 @@ listen kube-master
     server k8s-master3 ${MasterIP[2]}:6443 check inter 2000 fall 2 rise 2 weight 1
 EOF
 
-#安装配置Keepalived和Haproxy，并根据节点的不同分别为不同节点的Keepalived设置优先级
+# 安装配置Keepalived和Haproxy，并根据节点的不同分别为不同节点的Keepalived设置优先级
 weight=1
 for i in ${MasterIP[*]};do
 ((keepalivedPriority=$weight+100))
@@ -728,13 +728,14 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-    #遍历所有节点,将所有节点的IP写入到csr.json里面的hosts字段
+    # 遍历所有节点,将所有节点的IP写入到csr.json里面的hosts字段
+    # 这里本来可以只写master节点的IP，但考虑到新增apiserver需要重新生成csr文件，所以将用户输入的所有IP都写了进去
     nIndex=0
     nodeCountLen=${#nodeCount[*]}
     while (( nIndex < nodeCountLen ))
     do
        sed -i "4 a\"${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
-       sed  '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
+       sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
        let nIndex+=1
     done
     sed -i "4 a\"${k8sVIP}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
@@ -1150,7 +1151,7 @@ EOF
 	fi
 done
 
-#确保在所有节点都发出了CSR之后再进行approve操作
+# 确保在所有节点都发出了CSR之后再进行approve操作
 sleep 10
 if [ $? ];then
     for i in $(kubectl get csr | awk 'NR>1{print $1}' );do kubectl certificate approve $i ;done
@@ -1234,6 +1235,7 @@ KUBE_PROXY_ARGS="--bind-address=0.0.0.0 \\
   --masquerade-all \\
   --v=2"
 EOF
+
     if $(ssh $i "[[ -d /etc/kubernetes/pki/proxy ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/proxy/目录,跳过此步骤..........\033[0m"
     else
