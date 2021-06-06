@@ -734,8 +734,8 @@ EOF
     nodeCountLen=${#nodeCount[*]}
     while (( nIndex < nodeCountLen ))
     do
-       sed -i "4 a\"${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
-       sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
+       sed -i "4 a\"      ${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
+    #    sed -i '5s/^/      /' /etc/kubernetes/pki/apiserver/apiserver-csr.json
        let nIndex+=1
     done
     sed -i "4 a\"${k8sVIP}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
