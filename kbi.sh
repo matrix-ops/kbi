@@ -2,7 +2,6 @@
 # Kubernetes Binarization Installer v0.0.4
 # Author Dolphin-Matrix Ops
 set -e
-set -e
 echo -e "\033[32m========================================================================\033[0m"
 echo -e "\033[32mKubernetes Binarization Installer\033[0m"
 echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
