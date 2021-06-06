@@ -2,34 +2,45 @@
 # Kubernetes Binarization Installer v0.0.4
 # Author matrix-ops zhangweilong Dolphin
 set -e
-echo -e "\033[32m========================================================================\033[0m"
-echo -e "\033[32mKubernetes Binarization Installer\033[0m"
-echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
-echo -e "\033[32m========================================================================\033[0m"
-echo -e "\033[32m请在部署节点执行安装操作，部署节点可以是集群节点中的其中一个,或是任何可以连接至目标K8s集群的节点\033[0m"
-echo -e "\033[32m如果是在云环境，请确保安全组放通VRRP协议（IP协议号112），在OpenStack中，还需要配置Master节点端口的allowed-port-pairs功能\033[0m"
-read -p "输入Master节点IP,以空格分割:" -a MasterIP
-read -p "输入Node节点IP,以空格分割,默认与Master节点相同:" -a NodeIP
-read -p "输入K8s集群VIP:" k8sVIP
-read -p "输入Pod网段,以CIDR格式表示,默认172.23.0.0/16(按回车跳过):" podNet
-read -p "输入Service网段,以CIDR格式表示,默认10.253.0.0/16(按回车跳过):" serviceNet
-read -p "输入Kubernetes版本,默认1.18.10(按回车跳过): " k8sVersion
-read -p "输入docker-ce版本,默认最新版(按回车跳过): " dockerVersion
+while getopts i OPT;do
+# i后面没有冒号表示这是个布尔值的选项，带了这个选项即为真
+    case $OPT in    
+        i)
+            echo -e "\033[32m========================================================================\033[0m"
+            echo -e "\033[32mKubernetes Binarization Installer\033[0m"
+            echo -e "\033[32m欢迎使用KBI(Kubernetes Binarization Installer)\033[0m"
+            echo -e "\033[32m========================================================================\033[0m"
+            echo -e "\033[32m请在部署节点执行安装操作，部署节点可以是集群节点中的其中一个,或是任何可以连接至目标K8s集群的节点\033[0m"
+            echo -e "\033[32m如果是在云环境，请确保安全组放通VRRP协议（IP协议号112），在OpenStack中，还需要配置Master节点端口的allowed-port-pairs功能\033[0m"
+            read -p "输入Master节点IP,以空格分割:" -a MasterIP
+            read -p "输入Node节点IP,以空格分割,默认与Master节点相同:" -a NodeIP
+            read -p "输入K8s集群VIP:" k8sVIP
+            read -p "输入Pod网段,以CIDR格式表示,默认172.23.0.0/16(按回车跳过):" podNet
+            read -p "输入Service网段,以CIDR格式表示,默认10.253.0.0/16(按回车跳过):" serviceNet
+            read -p "输入Kubernetes版本,默认1.18.10(按回车跳过): " k8sVersion
+            read -p "输入docker-ce版本,默认最新版(按回车跳过): " dockerVersion
+            ;;
+        ?)
+
+            ;;
+        esac
+done
+
 # Master节点数量
 mCount=${#MasterIP[@]}
 # Node节点数量
 nCount=${#NodeIP[@]}
 if [ $nCount -eq 0 ];then
-    nodeCount=(${MasterIP[*]})
-    NodeIP=(${MasterIP[*]})
+    nodeCount=(${MasterIP[@]})
+    NodeIP=(${MasterIP[@]})
 else
-    nodeCount=(${MasterIP[*]} ${NodeIP[*]})
+    nodeCount=(${MasterIP[@]} ${NodeIP[@]})
 fi
 echo "节点总数:${#nodeCount[@]},Master数量:${#MasterIP[@]},Node数量:${#NodeIP[@]}"
 echo "Master节点："
-for i in ${MasterIP[*]};do echo $i;done
+for i in ${MasterIP[@]};do echo $i;done
 echo "Node节点:"
-for i in ${NodeIP[*]};do echo $i;done
+for i in ${NodeIP[@]};do echo $i;done
 echo
 if [ -z "$k8sVersion" ];then
     k8sVersion=1.18.10
@@ -55,8 +66,10 @@ autoSSHCopy(){
         echo "公钥文件不存在"
         ssh-keygen -t rsa -P '' -f /root/.ssh/id_rsa
     fi
-    for i in ${nodeCount[*]};do ssh-copy-id $i;done
+    for i in ${nodeCount[@]};do ssh-copy-id $i;done
 }
+
+
 
 # Preparation
 preparation(){
@@ -162,7 +175,7 @@ if [[ ! -e /etc/kubernetes/pki/CA/ca.pem && ! -e /etc/kubernetes/pki/CA/ca-key.p
     cfssl gencert -initca /etc/kubernetes/pki/CA/ca-csr.json | cfssljson -bare ca
 fi
 
-for i in ${nodeCount[*]};do
+for i in ${nodeCount[@]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
     ssh $i "yum install -y curl chrony sysstat conntrack ipvsadm ipset jq iptables psmisc iptables-services libseccomp && modprobe br_netfilter && sysctl -p /etc/sysctl.d/kubernetes.conf && mkdir -p /etc/kubernetes/pki/CA &> /dev/null"
@@ -202,7 +215,7 @@ cat << EOF > /etc/sysconfig/iptables
 -A INPUT -i lo -j ACCEPT
 COMMIT
 EOF
-for i in ${nodeCount[*]};do
+for i in ${nodeCount[@]};do
     scp /etc/sysconfig/iptables $i:/etc/sysconfig/iptables
     ssh $i "systemctl restart iptables"
 done
@@ -234,8 +247,8 @@ echo -e "\033[32mNTP服务器完成..........\033[0m"
 
 deployHaproxyKeepalived (){
 # 生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
-for i in ${MasterIP[*]};do ssh $i useradd keepalived_script;done
-for i in ${MasterIP[*]};do ssh $i "echo 'keepalived_script ALL = (root) NOPASSWD:ALL' > /etc/sudoers.d/keepalived_script";done
+for i in ${MasterIP[@]};do ssh $i useradd keepalived_script;done
+for i in ${MasterIP[@]};do ssh $i "echo 'keepalived_script ALL = (root) NOPASSWD:ALL' > /etc/sudoers.d/keepalived_script";done
 cat << EOF > /tmp/haproxy.cfg 
 global
     log /dev/log    local0
@@ -277,7 +290,7 @@ EOF
 
 # 安装配置Keepalived和Haproxy，并根据节点的不同分别为不同节点的Keepalived设置优先级
 weight=1
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
 ((keepalivedPriority=$weight+100))
 ssh $i "yum install haproxy keepalived -y && systemctl enable haproxy keepalived"
 interfaceName=$(ssh $i "ip a | grep -i $i -B 2 | awk 'NR==1{print \$2}' | sed 's/://'")
@@ -363,7 +376,7 @@ if [[ ! -e /tmp/etcd-v3.3.10-linux-amd64.tar.gz ]];then
 fi
 
 index=0
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
 if [ ! -d /tmp/etcd/ ];then ssh $i "mkdir /tmp/etcd/" ;fi
 cat << EOF > /tmp/etcd/etcd.conf
 ETCD_ARGS="--name=etcd-$index \\
@@ -448,7 +461,7 @@ echo -e "\033[32m正在启动etcd.....\033[0m"
 ssh ${MasterIP[0]} "systemctl enable etcd && systemctl start etcd " &
 sleep 5
 
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
     if [ ! $i = ${MasterIP[0]} ];then
         ssh $i "systemctl enable etcd && systemctl start etcd "
         if [ $? ];then
@@ -463,7 +476,7 @@ done
 setKubectl(){
     if [[ ! $(which kube-apiserver) ]];then
         wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/$k8sVersion/kubernetes-server-linux-amd64.tar.gz -O /opt/kubernetes-server-linux-amd64.tar.gz && tar xvf /opt/kubernetes-server-linux-amd64.tar.gz  -C /opt/&& cd /opt/kubernetes/server/bin && rm -rf *.tar *.docker_tag 
-        for i in ${nodeCount[*]};do
+        for i in ${nodeCount[@]};do
             scp /opt/kubernetes/server/bin/* $i:/usr/local/bin/ 
             ssh $i "chmod a+x /usr/local/bin/*"
         done
@@ -519,7 +532,7 @@ kubectl config set-context admin@kubernetes \
 
 kubectl config use-context admin@kubernetes --kubeconfig=/etc/kubernetes/pki/admin/admin.conf
 
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
      ssh $i "mkdir -p /etc/kubernetes/pki/admin /root/.kube/ &"
      scp /etc/kubernetes/pki/admin/admin* $i:/etc/kubernetes/pki/admin/ 2> /dev/null
      scp /etc/kubernetes/pki/admin/admin.conf $i:/root/.kube/config 2> /dev/null
@@ -626,7 +639,7 @@ KillMode=process
 [Install]
 WantedBy=multi-user.target
 EOF
-for i in ${nodeCount[*]};do
+for i in ${nodeCount[@]};do
 
     ssh $i "if [ ! -d /etc/kubernetes/pki/flannel/ ];then mkdir -p /etc/kubernetes/pki/flannel/ /run/flannel ; touch /run/flannel/docker;fi" 
 
@@ -731,7 +744,7 @@ EOF
     # 遍历所有节点,将所有节点的IP写入到csr.json里面的hosts字段
     # 这里本来可以只写master节点的IP，但考虑到新增apiserver需要重新生成csr文件，所以将用户输入的所有IP都写了进去
     nIndex=0
-    nodeCountLen=${#nodeCount[*]}
+    nodeCountLen=${#nodeCount[@]}
     while (( nIndex < nodeCountLen ))
     do
        sed -i "4 a\"${nodeCount[$nIndex]}\"," /etc/kubernetes/pki/apiserver/apiserver-csr.json
@@ -747,7 +760,7 @@ EOF
         -profile=kubernetes apiserver-csr.json | cfssljson -bare apiserver    
     fi
 
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
 echo > /tmp/kube-apiserver.conf
 cat << EOF > /tmp/kube-apiserver.conf
 KUBE_API_ARGS="--admission-control=NamespaceLifecycle,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota,NodeRestriction \\
@@ -909,7 +922,7 @@ kubectl config set-context system:kube-controller-manager@kubernetes \
 --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
 kubectl config use-context system:kube-controller-manager@kubernetes --kubeconfig=/etc/kubernetes/pki/controller-manager/controller-manager.conf
 
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
     if $(ssh $i "[[ -d /etc/kubernetes/pki/controller-manager ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/controller-manager目录,跳过此步骤..........\033[0m"
     else
@@ -1030,7 +1043,7 @@ KUBE_SCHEDULER_ARGS="--master=https://${k8sVIP}:8443 \
   --v=2"
 EOF
 
-for i in ${MasterIP[*]};do
+for i in ${MasterIP[@]};do
     if $(ssh $i "[[ -d /etc/kubernetes/pki/scheduler ]]");then
         echo -e "\033[32m$i 已存在/etc/kubernetes/pki/scheduler/目录,跳过此步骤..........\033[0m"
     else
@@ -1097,7 +1110,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
 
-for i in ${NodeIP[*]};do
+for i in ${NodeIP[@]};do
 cat << EOF > /tmp/kubelet.conf
 KUBELET_ARGS="--address=0.0.0.0 \\
   --hostname-override=$i \\
@@ -1160,7 +1173,7 @@ else
 fi
 
 wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/pause/3.0/pause-amd64-3.0.tar.gz -O /tmp/pause-amd64-3.0.tar.gz
-for i in ${NodeIP[*]};do
+for i in ${NodeIP[@]};do
     scp /tmp/pause-amd64-3.0.tar.gz $i:/tmp 
     ssh $i "docker image load -i /tmp/pause-amd64-3.0.tar.gz"
 done
@@ -1220,7 +1233,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-for i in ${NodeIP[*]};do
+for i in ${NodeIP[@]};do
 cat << EOF > /tmp/kube-proxy.conf
 KUBE_PROXY_ARGS="--bind-address=0.0.0.0 \\
   --hostname-override=$i \\
@@ -1290,7 +1303,7 @@ deployIngressController(){
     fi
     wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-mandatory.yaml -O /tmp/nginx-ingress-controller-mandatory.yaml
     wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/ingress-controller/0.27.1/nginx-ingress-controller-service.yaml -O /tmp/nginx-ingress-controller-service.yaml
-    for i in ${NodeIP[*]};do
+    for i in ${NodeIP[@]};do
         scp /tmp/nginx-ingress-controller-0.27.1.tar.gz /tmp/nginx-ingress-controller-mandatory.yaml $i:/tmp/
         ssh $i "docker image load -i /tmp/nginx-ingress-controller-0.27.1.tar.gz"
     done
@@ -1311,7 +1324,7 @@ deployCoreDNS(){
         wget https://kuberocker.oss-cn-shenzhen.aliyuncs.com/coredns/1.8.0/coredns-image-1.8.0.tar.gz -O /tmp/coredns-image-1.8.0.tar.gz
    fi
 
-   for i in ${NodeIP[*]};do
+   for i in ${NodeIP[@]};do
         scp /tmp/coredns-image-1.8.0.tar.gz $i:/tmp/ 
         ssh $i exec docker image load -i /tmp/coredns-image-1.8.0.tar.gz
    done
