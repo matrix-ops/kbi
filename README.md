@@ -2,7 +2,10 @@
 Kubernetes Binarization Installer 
 ## 运行方法
 ```shell
-bash kbi.sh
+bash kbi.sh -i
+# 或者
+chmod a+x kbi.sh
+./kbi.sh -i
 #根据提示进行操作即可，注意，输入时不能携带特殊字符
 ```
 - 输入IP和K8s版本，即可完成K8s二进制高可用安装（含Ingress-Controller和CoreDNS）;
