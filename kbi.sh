@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kubernetes Binarization Installer v0.0.4
-# Author matrix-ops zhangweilong Dolphin
+# Author zhangweilong
 set -e
 while getopts i OPT;do
 # i后面没有冒号表示这是个布尔值的选项，带了这个选项即为真
