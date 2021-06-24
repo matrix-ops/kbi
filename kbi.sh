@@ -247,7 +247,7 @@ echo -e "\033[32mNTP服务器完成..........\033[0m"
 
 deployHaproxyKeepalived (){
 # 生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
-for i in ${MasterIP[@]};do ssh $i useradd keepalived_script;done
+for i in ${MasterIP[@]};do ssh $i "useradd keepalived_script 2> /dev/null";done
 for i in ${MasterIP[@]};do ssh $i "echo 'keepalived_script ALL = (root) NOPASSWD:ALL' > /etc/sudoers.d/keepalived_script";done
 cat << EOF > /tmp/haproxy.cfg 
 global
