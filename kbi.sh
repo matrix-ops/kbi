@@ -75,7 +75,6 @@ autoSSHCopy(){
 preparation(){
 echo -e "\033[32m开始执行部署流程..........\033[0m"
 cat << EOF > /etc/yum.repos.d/docker-ce.repo
-#/etc/yum.repos.d/docker-ce.repo
 [docker-ce-stable]
 name=Docker CE Stable - $basearch
 baseurl=https://mirrors.aliyun.com/docker-ce/linux/centos/7/\$basearch/stable
@@ -84,6 +83,7 @@ gpgcheck=1
 gpgkey=https://mirrors.aliyun.com/docker-ce/linux/centos/gpg
 EOF
 
+# 内核参数
 cat << EOF  > /etc/sysctl.d/kubernetes.conf
 net.core.netdev_max_backlog=10000
 net.core.somaxconn=32768
@@ -124,8 +124,8 @@ if [[ ! -e /usr/local/bin/cfssl || ! -e /usr/local/bin/cfssljson ]];then
 fi
 chmod a+x /usr/local/bin/*
 
-if [ ! -d /etc/kubernetes/pki/CA ];then mkdir -p /etc/kubernetes/pki/CA ;fi
 # 生成CA证书和私钥
+if [ ! -d /etc/kubernetes/pki/CA ];then mkdir -p /etc/kubernetes/pki/CA ;fi
 echo -e "\033[32m生成CA自签证书和私钥..........\033[0m"
 cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
 {
@@ -175,6 +175,7 @@ if [[ ! -e /etc/kubernetes/pki/CA/ca.pem && ! -e /etc/kubernetes/pki/CA/ca-key.p
     cfssl gencert -initca /etc/kubernetes/pki/CA/ca-csr.json | cfssljson -bare ca
 fi
 
+# 初始化
 for i in ${nodeCount[@]};do
     scp /etc/yum.repos.d/docker-ce.repo root@$i:/etc/yum.repos.d/
     scp /etc/sysctl.d/kubernetes.conf root@$i:/etc/sysctl.d/
@@ -192,7 +193,7 @@ for i in ${nodeCount[@]};do
     echo 
 done
 
-# iptables
+# iptables，注意这里其实没开，因为很多人的环境不一样，如果加一条reject规则可能影响已存在的环境
 echo -e "\033[32m正在为各节点配置iptables规则..........\033[0m"
 cat << EOF > /etc/sysconfig/iptables
 *filter
@@ -245,8 +246,8 @@ ssh ${MasterIP[0]} "systemctl restart chronyd"
 echo -e "\033[32mNTP服务器完成..........\033[0m"
 }
 
-deployHaproxyKeepalived (){
 # 生成Haproxy的配置文件，默认使用MasterIP中的前三个节点
+deployHaproxyKeepalived (){
 for i in ${MasterIP[@]};do ssh $i "useradd keepalived_script &> /dev/null &";done
 for i in ${MasterIP[@]};do ssh $i "echo 'keepalived_script ALL = (root) NOPASSWD:ALL' > /etc/sudoers.d/keepalived_script";done
 cat << EOF > /tmp/haproxy.cfg 
