@@ -147,6 +147,9 @@ cat << EOF > /etc/kubernetes/pki/CA/ca-config.json
     }
 } 
 EOF
+# 这里修改的只是控制平面和kube-proxy的证书过期时间，100年
+# kubelet自己的证书有效期默认是一年，修改需要改源码
+
 cat << EOF > /etc/kubernetes/pki/CA/ca-csr.json
 {
     "CA": {
